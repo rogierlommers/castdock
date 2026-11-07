@@ -49,4 +49,5 @@
 - Full-library refreshes are application-owned background work, never request-owned. Manual and scheduled runs share a single-flight guard, shutdown waits for cancellation to settle, and `context.Canceled` must not be persisted as a feed error.
 - Audio comes directly from publisher enclosure URLs. Do not add proxying or downloads without revisiting storage, range requests, SSRF, and backup behavior.
 - Feed requests reject private, loopback, link-local, and carrier-grade NAT destinations by default, including after DNS resolution and redirects. `CASTDOCK_ALLOW_PRIVATE_FEEDS=true` is an explicit opt-out.
+- Browser writes accept `same-origin` fetch metadata directly, reject `cross-site`, and require an exact Origin/Referer host match for `same-site` or missing metadata. Do not treat sibling subdomains as trusted merely because they are same-site.
 - Episode show notes keep a sanitized HTML representation plus plain text for search/fallback. Sanitize publisher markup during ingestion and again at the rendering boundary; never cast raw or merely persisted markup to trusted template HTML.

@@ -23,6 +23,45 @@ The read-only **System** page shows runtime and build information, library and d
 > [!WARNING]
 > CastDock does not yet include authentication. Keep it on a trusted private network; the supplied Docker Compose configuration publishes only to loopback by default.
 
+## Run with docker
+
+If you want a quick check how it looks, use this:
+
+```
+docker run \
+  --name castdock --user 1000:1000 --publish 8080:8080 rogierlommers/castdock:latest
+```
+
+And open http://0.0.0.0:8080 to see the gui.
+
+## Run with docker-compose
+
+To run the app using docker-compose, use the following:
+
+```
+  castdock:
+    container_name: castdock
+    image: rogierlommers/castdock:latest
+    user: "1000:1000"
+    ports:
+      - "8080:8080"
+    volumes:
+      - /your_data/castdock:/data
+    environment:
+      CASTDOCK_LISTEN_ADDR: ":8080"
+      CASTDOCK_DATABASE_PATH: "/data/castdock.db"
+      CASTDOCK_REFRESH_INTERVAL: "1h"
+      CASTDOCK_REFRESH_CONCURRENCY: "4"
+      CASTDOCK_HTTP_TIMEOUT: "20s"
+      CASTDOCK_MAX_FEED_BYTES: "33554432"
+      CASTDOCK_MAX_OPML_BYTES: "5242880"
+      CASTDOCK_MAX_OPML_FEEDS: "500"
+      CASTDOCK_ALLOW_PRIVATE_FEEDS: "false"
+      CASTDOCK_LOG_LEVEL: "debug"
+      CASTDOCK_ACCESS_LOG_ENABLED: "false"
+    restart: unless-stopped
+```
+
 ## Run locally
 
 Requirements: Go 1.27 or newer.

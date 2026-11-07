@@ -247,6 +247,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}()
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			if !sameOrigin(r) {
+				s.logger.Debug("cross-origin request rejected",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"request_host", r.Host,
+					"origin_host", requestOriginHost(r),
+					"sec_fetch_site", strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))),
+				)
 				http.Error(response, "cross-origin request rejected", http.StatusForbidden)
 				return
 			}
@@ -284,7 +291,7 @@ func sameOrigin(r *http.Request) bool {
 	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
 	case "same-origin":
 		return true
-	case "same-site", "cross-site":
+	case "cross-site":
 		return false
 	}
 	source := r.Header.Get("Origin")
@@ -296,6 +303,18 @@ func sameOrigin(r *http.Request) bool {
 	}
 	parsed, err := url.Parse(source)
 	return err == nil && strings.EqualFold(parsed.Host, r.Host)
+}
+
+func requestOriginHost(r *http.Request) string {
+	source := r.Header.Get("Origin")
+	if source == "" {
+		source = r.Header.Get("Referer")
+	}
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {

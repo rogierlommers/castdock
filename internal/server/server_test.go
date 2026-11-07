@@ -410,6 +410,30 @@ func TestMiddlewareAcceptsSameOriginFetchMetadataWithoutOriginHeaders(t *testing
 	}
 }
 
+func TestMiddlewareAcceptsSameSiteWhenExactOriginMatches(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	request := httptest.NewRequest(http.MethodPost, "http://services.hake-cod.ts.net:7007/library/import", nil)
+	request.Header.Set("Origin", "http://services.hake-cod.ts.net:7007")
+	request.Header.Set("Sec-Fetch-Site", "same-site")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMiddlewareRejectsSameSiteWhenOriginHostDiffers(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	request := httptest.NewRequest(http.MethodPost, "http://services.hake-cod.ts.net:7007/library/import", nil)
+	request.Header.Set("Origin", "http://attacker.hake-cod.ts.net:7007")
+	request.Header.Set("Sec-Fetch-Site", "same-site")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
 func TestLegacyInboxAndImportPagesRedirect(t *testing.T) {
 	server := newTestServer(t, &fakeRepository{})
 	tests := []struct {
