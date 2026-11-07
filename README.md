@@ -28,8 +28,7 @@ The read-only **System** page shows runtime and build information, library and d
 If you want a quick check how it looks, use this:
 
 ```
-docker run \
-  --name castdock --user 1000:1000 --publish 8080:8080 rogierlommers/castdock:latest
+docker run --name castdock --user 1000:1000 --publish 8080:8080 rogierlommers/castdock:latest
 ```
 
 And open http://0.0.0.0:8080 to see the gui.
