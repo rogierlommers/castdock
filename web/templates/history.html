@@ -20,7 +20,7 @@
       <p class="play-timestamp"><strong>Finished playing:</strong> {{relativeTime .PlaybackUpdated}}</p>
       <details class="show-notes">
         <summary>Description and show notes</summary>
-        {{if .Description}}<p>{{.Description}}</p>{{else}}<p>No description or show notes were supplied.</p>{{end}}
+        {{if .DescriptionHTML}}<div class="show-notes-content">{{showNotesHTML .DescriptionHTML}}</div>{{else if .Description}}<p>{{.Description}}</p>{{else}}<p>No description or show notes were supplied.</p>{{end}}
       </details>
       <div class="episode-actions">
         {{if eq .State "queued"}}

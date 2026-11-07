@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mmcdole/gofeed"
+	contenthtml "github.com/rlommers/castdock/internal/content"
 	"github.com/rlommers/castdock/internal/podcast"
 	xhtml "golang.org/x/net/html"
 )
@@ -144,11 +145,14 @@ func mapFeed(feed *gofeed.Feed) podcast.ParsedFeed {
 		result.ImageURL = strings.TrimSpace(feed.Image.URL)
 	}
 	for _, item := range feed.Items {
+		rawDescription := firstNonEmpty(item.Content, item.Description)
+		descriptionHTML := contenthtml.SanitizeShowNotes(rawDescription)
 		episode := podcast.ParsedEpisode{
-			GUID:        strings.TrimSpace(item.GUID),
-			Title:       strings.TrimSpace(item.Title),
-			Description: plainText(firstNonEmpty(item.Content, item.Description)),
-			PublishedAt: item.PublishedParsed,
+			GUID:            strings.TrimSpace(item.GUID),
+			Title:           strings.TrimSpace(item.Title),
+			Description:     plainText(descriptionHTML),
+			DescriptionHTML: descriptionHTML,
+			PublishedAt:     item.PublishedParsed,
 		}
 		if episode.PublishedAt == nil {
 			episode.PublishedAt = item.UpdatedParsed

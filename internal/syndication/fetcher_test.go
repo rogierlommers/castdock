@@ -37,6 +37,9 @@ func TestMapFeed(t *testing.T) {
 	if strings.Contains(feed.Episodes[0].Description, "bad()") {
 		t.Fatalf("description contains script text: %q", feed.Episodes[0].Description)
 	}
+	if feed.Episodes[0].DescriptionHTML != "<p>Hello</p>" {
+		t.Fatalf("DescriptionHTML = %q", feed.Episodes[0].DescriptionHTML)
+	}
 }
 
 func TestFetchReportsConfiguredSizeLimit(t *testing.T) {

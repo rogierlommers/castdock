@@ -1,5 +1,7 @@
 # CastDock
 
+[![Validate](https://github.com/rogierlommers/castdock/actions/workflows/validate.yml/badge.svg)](https://github.com/rogierlommers/castdock/actions/workflows/validate.yml)
+
 CastDock is a self-hosted, single-user podcast library and web player. The Go service imports RSS/Atom feeds and OPML subscription lists, stores the library and playback state in SQLite, refreshes feeds on a schedule, and serves an HTML interface with frequent playback synchronization.
 
 ## Opinionated by design
@@ -10,7 +12,7 @@ Audio streams directly from each podcast publisher. CastDock stores metadata and
 
 New episodes discovered after a podcast's first refresh arrive in **Inbox**, shown as the primary landing-page section above **Up Next**. From there they can be archived or appended to the ordered queue. Up Next is managed entirely on the landing page with drag-and-drop ordering plus keyboard- and touch-friendly move controls. Subscription management, OPML import, and OPML export live together on the dedicated **Library** page. Existing feed history starts in the searchable **Archive**, and completing a queued episode archives it before advancing to the next item.
 
-The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, description/show notes, played status, lifecycle state, and queue/archive actions. **Play History** uses the same detailed layout for the 20 most recently played episodes and shows a human-friendly playback timestamp.
+The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, formatted show notes, played status, lifecycle state, and queue/archive actions. **Play History** uses the same detailed layout for the 20 most recently played episodes and shows a human-friendly playback timestamp. Publisher show-note HTML is sanitized during ingestion and again before rendering.
 
 **Refresh all** starts one application-owned background refresh and returns to the Library immediately. Manual and scheduled full-library refreshes share a single-flight guard, so they cannot overlap; an in-progress refresh is canceled cleanly during application shutdown rather than being recorded as a feed failure.
 

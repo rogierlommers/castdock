@@ -36,6 +36,7 @@ type Episode struct {
 	GUID            string
 	Title           string
 	Description     string
+	DescriptionHTML string
 	PublishedAt     *time.Time
 	DurationSeconds int
 	EnclosureURL    string
@@ -66,6 +67,7 @@ type ParsedEpisode struct {
 	GUID            string
 	Title           string
 	Description     string
+	DescriptionHTML string
 	PublishedAt     *time.Time
 	DurationSeconds int
 	EnclosureURL    string

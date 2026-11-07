@@ -17,6 +17,7 @@ import (
 	"time"
 
 	apidocs "github.com/rlommers/castdock/api"
+	contenthtml "github.com/rlommers/castdock/internal/content"
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
 	"github.com/rlommers/castdock/internal/storage"
@@ -155,6 +156,9 @@ func parseTemplates() (map[string]*template.Template, error) {
 		"queryEscape": url.QueryEscape,
 		"relativeTime": func(value *time.Time) string {
 			return relativeTime(value, time.Now())
+		},
+		"showNotesHTML": func(value string) template.HTML {
+			return template.HTML(contenthtml.SanitizeShowNotes(value))
 		},
 	}
 	result := make(map[string]*template.Template)

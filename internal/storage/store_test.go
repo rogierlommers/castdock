@@ -41,6 +41,7 @@ func TestStoreFeedEpisodeAndPlayback(t *testing.T) {
 		Title: "Example podcast",
 		Episodes: []podcast.ParsedEpisode{{
 			GUID: "episode-1", Title: "Episode one", PublishedAt: &published,
+			Description: "Formatted notes", DescriptionHTML: "<p><strong>Formatted</strong> notes</p>",
 			EnclosureURL: "https://cdn.example.com/one.mp3", DurationSeconds: 120,
 		}},
 	}, true)
@@ -57,6 +58,9 @@ func TestStoreFeedEpisodeAndPlayback(t *testing.T) {
 	episodes, err := store.EpisodesForFeed(ctx, feed.ID, 100, 0)
 	if err != nil || len(episodes) != 1 {
 		t.Fatalf("EpisodesForFeed() = %+v, %v", episodes, err)
+	}
+	if episodes[0].DescriptionHTML != "<p><strong>Formatted</strong> notes</p>" {
+		t.Fatalf("DescriptionHTML = %q", episodes[0].DescriptionHTML)
 	}
 
 	newer := time.Now().UTC()
@@ -256,8 +260,8 @@ func TestOpenLogsMigrationProgress(t *testing.T) {
 		`msg="applying database migration"`,
 		`msg="database migration applied"`,
 		`msg="database migrations complete"`,
-		`current_version=2`,
-		`applied=2`,
+		`current_version=3`,
+		`applied=3`,
 	} {
 		if !strings.Contains(firstRun.String(), expected) {
 			t.Fatalf("first migration log missing %q: %s", expected, firstRun.String())

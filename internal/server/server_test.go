@@ -30,6 +30,8 @@ type fakeRepository struct {
 	history       []podcast.Episode
 	historyLimit  int
 	feeds         []podcast.Feed
+	feed          podcast.Feed
+	episode       podcast.Episode
 	reorderID     int64
 	reorderTarget int
 }
@@ -47,7 +49,7 @@ func (f *fakeRepository) InboxEpisodes(context.Context) ([]podcast.Episode, erro
 	return f.inbox, nil
 }
 func (f *fakeRepository) Feed(context.Context, int64) (podcast.Feed, error) {
-	return podcast.Feed{}, nil
+	return f.feed, nil
 }
 func (f *fakeRepository) EpisodesForFeed(context.Context, int64, int, int) ([]podcast.Episode, error) {
 	return nil, nil
@@ -65,7 +67,7 @@ func (f *fakeRepository) NextQueuedEpisode(context.Context) (podcast.Episode, er
 	return f.next, nil
 }
 func (f *fakeRepository) Episode(context.Context, int64) (podcast.Episode, error) {
-	return podcast.Episode{}, nil
+	return f.episode, nil
 }
 func (f *fakeRepository) SetEpisodeState(_ context.Context, id int64, state podcast.EpisodeState) error {
 	f.stateID = id
@@ -181,7 +183,7 @@ func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 	published := time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC)
 	server := newTestServer(t, &fakeRepository{recent: []podcast.Episode{{
 		ID: 21, Title: "Detailed episode", FeedTitle: "Example podcast",
-		Description: "These are the show notes.", ImageURL: "https://example.com/episode.jpg",
+		Description: "These are the show notes.", DescriptionHTML: `<p>These are the <strong>show notes</strong>.</p><script>bad()</script>`, ImageURL: "https://example.com/episode.jpg",
 		PublishedAt: &published, State: podcast.EpisodeStateQueued, Completed: true,
 	}}})
 	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/recent", nil)
@@ -191,11 +193,35 @@ func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 	for _, expected := range []string{
-		"Detailed episode", "Example podcast", "These are the show notes.",
+		"Detailed episode", "Example podcast", "<strong>show notes</strong>",
 		"episode.jpg", "queued", "Played", "Remove from Up Next",
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("recent page missing %q: %s", expected, response.Body.String())
+		}
+	}
+	if strings.Contains(response.Body.String(), "<script") || strings.Contains(response.Body.String(), "bad()") {
+		t.Fatalf("recent page rendered unsafe show notes: %s", response.Body.String())
+	}
+}
+
+func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{
+		feed: podcast.Feed{ID: 4, Title: "Example podcast"},
+		episode: podcast.Episode{
+			ID: 23, FeedID: 4, Title: "Formatted episode", State: podcast.EpisodeStateArchived,
+			DescriptionHTML: `<p>Start <strong>formatted</strong> end.</p>`,
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/episodes/23", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("episode page show-notes boundary missing %q: %s", expected, response.Body.String())
 		}
 	}
 }

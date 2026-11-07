@@ -79,9 +79,19 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .state-badge.played { border-color: #6fa57b; color: #397047; }
 .episode-meta { margin: .2rem 0 1rem; color: var(--muted); }
 .play-timestamp { margin: -.35rem 0 1rem; color: var(--muted); }
-.show-notes { margin: 1rem 0; color: var(--muted); }
+.show-notes { margin: 1rem 0; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--background); color: var(--muted); }
 .show-notes summary { color: var(--text); font-weight: 750; cursor: pointer; }
+.show-notes[open] summary { margin-bottom: .85rem; padding-bottom: .7rem; border-bottom: 1px solid var(--border); }
 .show-notes p { max-width: 70ch; white-space: pre-line; }
+.show-notes-panel { margin-top: 2rem; padding: 1.25rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); box-shadow: 0 10px 30px rgb(45 39 28 / 7%); }
+.show-notes-panel h2 { margin: 0; font-size: 1.45rem; letter-spacing: -.025em; }
+.show-notes-panel .show-notes-content, .show-notes-panel > p:last-child { margin-top: 1rem; }
+.show-notes-content { max-width: 70ch; overflow-wrap: anywhere; }
+.show-notes-content > :first-child { margin-top: .75rem; }.show-notes-content > :last-child { margin-bottom: 0; }
+.show-notes-content p { white-space: normal; }.show-notes-content ul, .show-notes-content ol { padding-left: 1.4rem; }
+.show-notes-content blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--border); color: var(--muted); }
+.show-notes-content pre { overflow-x: auto; padding: .8rem; border-radius: .5rem; background: var(--background); }
+.show-notes-content a { color: var(--accent); }
 .pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem; }
 .empty-state, .notice, .error, .import-result { padding: 1.3rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); }
 .notice { margin-bottom: 1rem; border-color: #8db598; }.error { margin-bottom: 1rem; border-color: #d47662; }

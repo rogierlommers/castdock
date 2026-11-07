@@ -238,19 +238,20 @@ func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast
 		}
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO episodes(
-				feed_id, guid, title, description, published_at, duration_seconds,
+				feed_id, guid, title, description, description_html, published_at, duration_seconds,
 				enclosure_url, enclosure_type, image_url, created_at, updated_at, state
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(feed_id, guid) DO UPDATE SET
 				title = excluded.title,
 				description = excluded.description,
+				description_html = excluded.description_html,
 				published_at = excluded.published_at,
 				duration_seconds = excluded.duration_seconds,
 				enclosure_url = excluded.enclosure_url,
 				enclosure_type = excluded.enclosure_type,
 				image_url = excluded.image_url,
 				updated_at = excluded.updated_at`,
-			feedID, episode.GUID, episode.Title, episode.Description, published,
+			feedID, episode.GUID, episode.Title, episode.Description, episode.DescriptionHTML, published,
 			episode.DurationSeconds, episode.EnclosureURL, episode.EnclosureType,
 			episode.ImageURL, now, now, newEpisodeState,
 		)
@@ -381,7 +382,7 @@ func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) 
 }
 
 const episodeSelect = `
-	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), f.image_url, e.guid, e.title, e.description, e.published_at,
+	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), f.image_url, e.guid, e.title, e.description, e.description_html, e.published_at,
 	       e.duration_seconds, e.enclosure_url, e.enclosure_type, e.image_url,
 	       e.created_at, e.updated_at,
 	       COALESCE(p.position_seconds, 0), COALESCE(p.duration_seconds, 0),
@@ -409,7 +410,7 @@ func scanEpisode(row scanner) (podcast.Episode, error) {
 	var queuePosition sql.NullInt64
 	var created, updated string
 	err := row.Scan(
-		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.FeedImageURL, &episode.GUID, &episode.Title, &episode.Description,
+		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.FeedImageURL, &episode.GUID, &episode.Title, &episode.Description, &episode.DescriptionHTML,
 		&published, &episode.DurationSeconds, &episode.EnclosureURL, &episode.EnclosureType,
 		&episode.ImageURL, &created, &updated, &episode.PositionSeconds, &episode.PlayedDuration,
 		&episode.Completed, &episode.Playing, &playbackUpdated, &episode.State, &queuePosition,

@@ -23,7 +23,13 @@
       data-episode-id="{{.Episode.ID}}" data-position="{{.Episode.PositionSeconds}}" data-completed="{{.Episode.Completed}}"></audio>
     <p id="sync-status" class="sync-status" aria-live="polite">Playback position is saved to CastDock.</p>
     {{else}}<p class="inline-error">This episode does not provide a playable enclosure.</p>{{end}}
-    {{if .Episode.Description}}<p class="description">{{.Episode.Description}}</p>{{end}}
+    {{if or .Episode.DescriptionHTML .Episode.Description}}
+    <section class="show-notes-panel" aria-labelledby="show-notes-heading">
+      <p class="eyebrow">Episode details</p>
+      <h2 id="show-notes-heading">Show notes</h2>
+      {{if .Episode.DescriptionHTML}}<div class="show-notes-content">{{showNotesHTML .Episode.DescriptionHTML}}</div>{{else}}<p>{{.Episode.Description}}</p>{{end}}
+    </section>
+    {{end}}
   </div>
 </article>
 {{if .Episode.EnclosureURL}}<script src="/static/player.js" defer></script>{{end}}
