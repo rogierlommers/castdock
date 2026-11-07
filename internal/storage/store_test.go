@@ -55,6 +55,19 @@ func TestStoreFeedEpisodeAndPlayback(t *testing.T) {
 	if refreshedFeed.LastChecked == nil || refreshedFeed.LastEpisodePublished == nil || !refreshedFeed.LastEpisodePublished.Equal(published) {
 		t.Fatalf("feed dates = checked %v, latest episode %v", refreshedFeed.LastChecked, refreshedFeed.LastEpisodePublished)
 	}
+	if refreshedFeed.PlaybackSpeed != 1.0 {
+		t.Fatalf("default PlaybackSpeed = %v", refreshedFeed.PlaybackSpeed)
+	}
+	if err := store.UpdateFeedPlaybackSpeed(ctx, feed.ID, 1.5); err != nil {
+		t.Fatalf("UpdateFeedPlaybackSpeed() error = %v", err)
+	}
+	refreshedFeed, err = store.Feed(ctx, feed.ID)
+	if err != nil || refreshedFeed.PlaybackSpeed != 1.5 {
+		t.Fatalf("updated PlaybackSpeed = %v, error = %v", refreshedFeed.PlaybackSpeed, err)
+	}
+	if err := store.UpdateFeedPlaybackSpeed(ctx, feed.ID, 3.5); err == nil {
+		t.Fatal("UpdateFeedPlaybackSpeed() expected range error")
+	}
 	episodes, err := store.EpisodesForFeed(ctx, feed.ID, 100, 0)
 	if err != nil || len(episodes) != 1 {
 		t.Fatalf("EpisodesForFeed() = %+v, %v", episodes, err)
@@ -278,8 +291,8 @@ func TestOpenLogsMigrationProgress(t *testing.T) {
 		`msg="applying database migration"`,
 		`msg="database migration applied"`,
 		`msg="database migrations complete"`,
-		`current_version=3`,
-		`applied=3`,
+		`current_version=4`,
+		`applied=4`,
 	} {
 		if !strings.Contains(firstRun.String(), expected) {
 			t.Fatalf("first migration log missing %q: %s", expected, firstRun.String())

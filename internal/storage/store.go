@@ -220,7 +220,7 @@ func (s *Store) ListFeeds(ctx context.Context) ([]podcast.Feed, error) {
 const feedSelect = `
 	SELECT f.id, f.url, f.title, f.description, f.site_url, f.image_url,
 	       f.etag, f.last_modified, f.last_checked, f.last_success, f.last_error,
-	       f.created_at, f.updated_at, COUNT(e.id), MAX(e.published_at)
+	       f.created_at, f.updated_at, f.playback_speed, COUNT(e.id), MAX(e.published_at)
 	FROM feeds f LEFT JOIN episodes e ON e.feed_id = f.id`
 
 type scanner interface{ Scan(...any) error }
@@ -232,7 +232,7 @@ func scanFeed(row scanner) (podcast.Feed, error) {
 	err := row.Scan(
 		&feed.ID, &feed.URL, &feed.Title, &feed.Description, &feed.SiteURL, &feed.ImageURL,
 		&feed.ETag, &feed.LastModified, &lastChecked, &lastSuccess, &feed.LastError,
-		&created, &updated, &feed.EpisodeCount, &lastEpisodePublished,
+		&created, &updated, &feed.PlaybackSpeed, &feed.EpisodeCount, &lastEpisodePublished,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return podcast.Feed{}, ErrNotFound
@@ -246,6 +246,20 @@ func scanFeed(row scanner) (podcast.Feed, error) {
 	feed.CreatedAt = parseTime(created)
 	feed.UpdatedAt = parseTime(updated)
 	return feed, nil
+}
+
+func (s *Store) UpdateFeedPlaybackSpeed(ctx context.Context, feedID int64, speed float64) error {
+	if !podcast.ValidPlaybackSpeed(speed) {
+		return fmt.Errorf("playback speed must be between 0.5 and 3.0")
+	}
+	result, err := s.db.ExecContext(ctx, "UPDATE feeds SET playback_speed = ?, updated_at = ? WHERE id = ?", speed, formatTime(time.Now()), feedID)
+	if err != nil {
+		return fmt.Errorf("update feed playback speed: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast.ParsedFeed, initialRefresh bool) error {

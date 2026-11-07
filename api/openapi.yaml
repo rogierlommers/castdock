@@ -144,6 +144,38 @@ paths:
                 format: binary
         "500":
           description: Internal server error
+  /feeds/{id}/playback-options:
+    post:
+      tags: [Playback]
+      summary: Update subscription-level playback options
+      description: Sets the playback speed automatically applied to every episode from this subscription.
+      operationId: updateFeedPlaybackOptions
+      parameters:
+        - $ref: "#/components/parameters/FeedID"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [playback_speed]
+              properties:
+                playback_speed:
+                  type: number
+                  format: double
+                  minimum: 0.5
+                  maximum: 3.0
+      responses:
+        "303":
+          description: Options saved; redirects to the feed page
+        "400":
+          description: Playback speed is invalid or outside the supported range
+        "403":
+          description: Cross-origin write rejected
+        "404":
+          description: Feed not found
+        "500":
+          description: Internal server error
 components:
   parameters:
     EpisodeID:
@@ -151,6 +183,15 @@ components:
       in: path
       required: true
       description: Numeric episode ID
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    FeedID:
+      name: id
+      in: path
+      required: true
+      description: Numeric feed ID
       schema:
         type: integer
         format: int64

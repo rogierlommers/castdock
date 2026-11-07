@@ -41,6 +41,7 @@
 ## Non-obvious Behavior
 
 - Playback updates are last-write-wins by client timestamp. The browser saves every five seconds while playing and on play, pause, seek, completion, and page hide; preserve out-of-order-write protection.
+- Subscription playback speed is canonical backend state in the 0.5×–3× range. Web and future clients must apply the feed preference rather than maintaining an unrelated local default.
 - Episode lifecycle is server-owned: initial feed history and existing migrated rows are `archived`, episodes discovered on later refreshes are `inbox`, and user-selected episodes are `queued`. Feed upserts must preserve an existing episode's state.
 - Queue positions are unique and contiguous. Append, reorder, removal, and completed-playback transitions must remain transactional; completing a queued episode archives it and advances the web player.
 - Marking an episode as played writes completed playback state and archives it in the same transaction; queued episodes must also compact the remaining queue.

@@ -24,8 +24,13 @@ type Feed struct {
 	LastEpisodePublished *time.Time
 	LastError            string
 	EpisodeCount         int
+	PlaybackSpeed        float64
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+}
+
+func ValidPlaybackSpeed(speed float64) bool {
+	return speed >= 0.5 && speed <= 3.0
 }
 
 type Episode struct {

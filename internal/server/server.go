@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -46,6 +47,7 @@ type Repository interface {
 	MarkEpisodePlayed(context.Context, int64) error
 	SavePlayback(context.Context, playback.State) (bool, error)
 	LibraryStatistics(context.Context) (podcast.LibraryStatistics, error)
+	UpdateFeedPlaybackSpeed(context.Context, int64, float64) error
 }
 
 type SystemConfiguration struct {
@@ -121,6 +123,7 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("POST /feeds", server.addFeed)
 	mux.HandleFunc("GET /feeds/{id}", server.feed)
 	mux.HandleFunc("POST /feeds/{id}/refresh", server.refreshFeed)
+	mux.HandleFunc("POST /feeds/{id}/playback-options", server.updateFeedPlaybackOptions)
 	mux.HandleFunc("POST /refresh", server.refreshAll)
 	mux.HandleFunc("GET /import", server.redirectLegacyImport)
 	mux.HandleFunc("POST /import", server.importOPML)
@@ -198,6 +201,9 @@ func parseTemplates() (map[string]*template.Template, error) {
 			return template.HTML(contenthtml.SanitizeShowNotes(value))
 		},
 		"bytes": humanBytes,
+		"speedSelected": func(current, option float64) bool {
+			return math.Abs(current-option) < 0.001
+		},
 	}
 	result := make(map[string]*template.Template)
 	for _, name := range []string{"index", "library", "feed", "episode", "archive", "recent", "history", "system"} {
@@ -397,6 +403,32 @@ func (s *Server) refreshFeed(w http.ResponseWriter, r *http.Request) {
 		location += "?notice=" + url.QueryEscape("Feed refreshed.")
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+func (s *Server) updateFeedPlaybackOptions(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	speed, err := strconv.ParseFloat(r.FormValue("playback_speed"), 64)
+	if err != nil || !podcast.ValidPlaybackSpeed(speed) {
+		http.Error(w, "playback speed must be between 0.5 and 3.0", http.StatusBadRequest)
+		return
+	}
+	if err := s.repository.UpdateFeedPlaybackSpeed(r.Context(), id, speed); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	s.logger.Debug("feed playback options updated", "feed_id", id, "playback_speed", speed)
+	redirectWithMessage(w, r, fmt.Sprintf("/feeds/%d", id), "notice", fmt.Sprintf("Playback speed set to %gx.", speed))
 }
 
 func (s *Server) refreshAll(w http.ResponseWriter, r *http.Request) {

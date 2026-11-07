@@ -35,6 +35,8 @@ type fakeRepository struct {
 	reorderID     int64
 	reorderTarget int
 	playedID      int64
+	speedFeedID   int64
+	playbackSpeed float64
 	statistics    podcast.LibraryStatistics
 }
 
@@ -92,6 +94,11 @@ func (f *fakeRepository) SavePlayback(_ context.Context, state playback.State) (
 }
 func (f *fakeRepository) LibraryStatistics(context.Context) (podcast.LibraryStatistics, error) {
 	return f.statistics, nil
+}
+func (f *fakeRepository) UpdateFeedPlaybackSpeed(_ context.Context, id int64, speed float64) error {
+	f.speedFeedID = id
+	f.playbackSpeed = speed
+	return nil
 }
 
 func newTestServer(t *testing.T, repository Repository) *Server {
@@ -191,6 +198,34 @@ func TestLibraryPageRendersSubscriptionsAndManagement(t *testing.T) {
 	}
 }
 
+func TestFeedPageRendersSubscriptionPlaybackSpeed(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{feed: podcast.Feed{ID: 7, Title: "Fast podcast", PlaybackSpeed: 1.5}})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/feeds/7", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{"Playback options", "Playback speed", `value="1.5" selected`, "/feeds/7/playback-options"} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("feed playback options missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestUpdateFeedPlaybackSpeed(t *testing.T) {
+	repository := &fakeRepository{}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/feeds/7/playback-options", strings.NewReader("playback_speed=1.75"))
+	request.Header.Set("Origin", "http://castdock.test")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther || repository.speedFeedID != 7 || repository.playbackSpeed != 1.75 {
+		t.Fatalf("status=%d speed update=%d/%v body=%s", response.Code, repository.speedFeedID, repository.playbackSpeed, response.Body.String())
+	}
+}
+
 func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 	published := time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC)
 	server := newTestServer(t, &fakeRepository{recent: []podcast.Episode{{
@@ -219,7 +254,7 @@ func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 
 func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	server := newTestServer(t, &fakeRepository{
-		feed: podcast.Feed{ID: 4, Title: "Example podcast"},
+		feed: podcast.Feed{ID: 4, Title: "Example podcast", PlaybackSpeed: 1.5},
 		episode: podcast.Episode{
 			ID: 23, FeedID: 4, Title: "Formatted episode", State: podcast.EpisodeStateArchived,
 			DescriptionHTML: `<p>Start <strong>formatted</strong> end.</p>`, EnclosureURL: "https://example.com/episode.mp3",
@@ -233,7 +268,7 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	}
 	for _, expected := range []string{
 		`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`,
-		`id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `/static/player.js`,
+		`id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `data-playback-rate="1.5"`, `/static/player.js`,
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("episode page show-notes boundary missing %q: %s", expected, response.Body.String())
@@ -247,7 +282,7 @@ func TestPlayerScriptSeeksFifteenSecondsWithBounds(t *testing.T) {
 		t.Fatalf("read player script: %v", err)
 	}
 	contents := string(script)
-	for _, expected := range []string{"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound"} {
+	for _, expected := range []string{"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound", "player.playbackRate = configuredPlaybackRate"} {
 		if !strings.Contains(contents, expected) {
 			t.Fatalf("player script missing %q", expected)
 		}

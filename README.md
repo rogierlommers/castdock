@@ -10,6 +10,8 @@ CastDock is deliberately focused on personal self-hosting, not multi-tenant SaaS
 
 Audio streams directly from each podcast publisher. CastDock stores metadata and playback state, not media files.
 
+Each subscription can define its own playback speed from 0.5× to 3× on the podcast page. The preference is stored by the backend and applied automatically whenever an episode from that podcast is played.
+
 New episodes discovered after a podcast's first refresh arrive in **Inbox**, shown as the primary landing-page section above **Up Next**. From there they can be archived, marked as played, or appended to the ordered queue. Up Next is managed entirely on the landing page with drag-and-drop ordering plus keyboard- and touch-friendly move controls. Subscription management, OPML import, and OPML export live together on the dedicated **Library** page. Existing feed history starts in the searchable **Archive**, and completing or marking a queued episode as played archives it and compacts the queue.
 
 **Play History** appears directly after Home and shows the 20 most recently played episodes with a human-friendly playback timestamp. The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, formatted show notes, played status, lifecycle state, and queue/archive actions. Publisher show-note HTML is sanitized during ingestion and again before rendering.

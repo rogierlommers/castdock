@@ -21,7 +21,7 @@ func TestOpenAPIDocumentIsValidYAMLAndCoversJSONEndpoints(t *testing.T) {
 	if document.OpenAPI != "3.0.3" {
 		t.Fatalf("openapi = %q", document.OpenAPI)
 	}
-	for _, path := range []string{"/healthz", "/api/episodes/{id}/playback", "/episodes/{id}/played", "/api/queue/reorder", "/library/import", "/library/export.opml"} {
+	for _, path := range []string{"/healthz", "/api/episodes/{id}/playback", "/episodes/{id}/played", "/api/queue/reorder", "/feeds/{id}/playback-options", "/library/import", "/library/export.opml"} {
 		if _, ok := document.Paths[path]; !ok {
 			t.Errorf("OpenAPI document missing %s", path)
 		}

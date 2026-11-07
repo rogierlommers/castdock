@@ -9,6 +9,7 @@
 
   const episodeID = Number(player.dataset.episodeId);
   const savedPosition = Number(player.dataset.position || 0);
+  const configuredPlaybackRate = Number(player.dataset.playbackRate || 1);
   let restored = false;
   let saveChain = Promise.resolve({});
 
@@ -51,6 +52,10 @@
   }
 
   function handleLoadedMetadata() {
+    if (Number.isFinite(configuredPlaybackRate) && configuredPlaybackRate >= 0.5 && configuredPlaybackRate <= 3) {
+      player.defaultPlaybackRate = configuredPlaybackRate;
+      player.playbackRate = configuredPlaybackRate;
+    }
     if (!restored && savedPosition > 0 && savedPosition < player.duration - 1) {
       player.currentTime = savedPosition;
     }
