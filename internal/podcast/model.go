@@ -34,28 +34,29 @@ func ValidPlaybackSpeed(speed float64) bool {
 }
 
 type Episode struct {
-	ID              int64
-	FeedID          int64
-	FeedTitle       string
-	FeedImageURL    string
-	GUID            string
-	Title           string
-	Description     string
-	DescriptionHTML string
-	PublishedAt     *time.Time
-	DurationSeconds int
-	EnclosureURL    string
-	EnclosureType   string
-	ImageURL        string
-	PositionSeconds float64
-	PlayedDuration  float64
-	Completed       bool
-	Playing         bool
-	PlaybackUpdated *time.Time
-	State           EpisodeState
-	QueuePosition   *int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                int64
+	FeedID            int64
+	FeedTitle         string
+	FeedImageURL      string
+	FeedPlaybackSpeed float64
+	GUID              string
+	Title             string
+	Description       string
+	DescriptionHTML   string
+	PublishedAt       *time.Time
+	DurationSeconds   int
+	EnclosureURL      string
+	EnclosureType     string
+	ImageURL          string
+	PositionSeconds   float64
+	PlayedDuration    float64
+	Completed         bool
+	Playing           bool
+	PlaybackUpdated   *time.Time
+	State             EpisodeState
+	QueuePosition     *int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type ParsedFeed struct {

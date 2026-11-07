@@ -2,7 +2,7 @@
 
 ## Current State
 
-- The Go web app is runnable. iOS, Android, and Linux/macOS CLI clients remain scaffolds under `clients/`.
+- The Go web app and native SwiftUI iOS MVP are runnable. Android and Linux/macOS CLI clients remain scaffolds under `clients/`.
 - The initial product is a single-user, self-hosted podcast library: it ingests external RSS feeds, tracks playback, serves a Go-rendered web UI, and exposes contracts for future native and CLI clients.
 - The deployment baseline is one Go service with SQLite under Docker Compose. Treat changes to those choices as architecture decisions, not incidental implementation details.
 
@@ -14,6 +14,8 @@
 - Focused package/test: `go test ./internal/syndication` or `go test ./internal/syndication -run '^TestName$'`
 - Run locally with `.env`: `./run.sh`; run directly after exporting the environment with `go run ./cmd/castdock`
 - Validate Compose: `docker compose --env-file .env -f deploy/compose/compose.yaml config`
+- Build iOS: `xcodebuild -project clients/ios/CastDock.xcodeproj -scheme CastDock -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build`
+- Test iOS: `xcodebuild -project clients/ios/CastDock.xcodeproj -scheme CastDock -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test`
 - Keep this order for final verification: format, vet, tests, race tests, then Compose validation when Docker is available.
 
 ## Boundaries
@@ -25,6 +27,7 @@
 - `internal/server/` owns HTTP transport, API handlers, middleware, and web delivery. Keep business rules out of handlers.
 - `web/` belongs to the Go service and is shipped with it; it is not a separate Node application.
 - Everything under `clients/` communicates through the service API. Clients must not depend on the SQLite schema or duplicate server-owned feed, playback, inbox, archive, or queue rules.
+- The iOS app stores server URL and optional credentials only in Keychain, uses opaque API session cookies, and sends `X-CastDock-Client: ios` on native writes that lack browser Origin metadata.
 - `migrations/` is the ordered history of persistent-schema changes. Never edit an applied migration; add a new one.
 - Runtime configuration is environment-only. Add new settings to `internal/config`, `.env.example`, `README.md`, and Compose together; do not introduce runtime config files or CLI flags.
 - `api/openapi.yaml` is the published HTTP contract. Update it with every documented route, request, response, or compatibility change; `/swagger/` must remain self-hosted.

@@ -435,7 +435,7 @@ func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) 
 }
 
 const episodeSelect = `
-	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), f.image_url, e.guid, e.title, e.description, e.description_html, e.published_at,
+	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), f.image_url, f.playback_speed, e.guid, e.title, e.description, e.description_html, e.published_at,
 	       e.duration_seconds, e.enclosure_url, e.enclosure_type, e.image_url,
 	       e.created_at, e.updated_at,
 	       COALESCE(p.position_seconds, 0), COALESCE(p.duration_seconds, 0),
@@ -463,7 +463,7 @@ func scanEpisode(row scanner) (podcast.Episode, error) {
 	var queuePosition sql.NullInt64
 	var created, updated string
 	err := row.Scan(
-		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.FeedImageURL, &episode.GUID, &episode.Title, &episode.Description, &episode.DescriptionHTML,
+		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.FeedImageURL, &episode.FeedPlaybackSpeed, &episode.GUID, &episode.Title, &episode.Description, &episode.DescriptionHTML,
 		&published, &episode.DurationSeconds, &episode.EnclosureURL, &episode.EnclosureType,
 		&episode.ImageURL, &created, &updated, &episode.PositionSeconds, &episode.PlayedDuration,
 		&episode.Completed, &episode.Playing, &playbackUpdated, &episode.State, &queuePosition,

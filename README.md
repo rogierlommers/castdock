@@ -18,6 +18,10 @@ New episodes discovered after a podcast's first refresh arrive in **Inbox**, sho
 
 The read-only **System** page shows runtime and build information, library and database statistics, and an explicit allow-list of effective configuration values. It never dumps the process environment, so future secret settings are not exposed automatically.
 
+## Native iOS client
+
+The first native SwiftUI client lives in [`clients/ios`](clients/ios). It connects to the same JSON API as the web player and supports Inbox, Up Next, lifecycle actions, feed playback speed, ±15-second seeking, five-second playback synchronization, background audio and lock-screen controls. Open `clients/ios/CastDock.xcodeproj` in Xcode; setup and scope details are in the [iOS README](clients/ios/CastDock/README.md).
+
 **Refresh all** starts one application-owned background refresh and returns to the Library immediately. Manual and scheduled full-library refreshes share a single-flight guard, so they cannot overlap; an in-progress refresh is canceled cleanly during application shutdown rather than being recorded as a feed failure.
 
 > [!WARNING]

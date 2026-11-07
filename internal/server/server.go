@@ -140,6 +140,13 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("GET /login", server.loginPage)
 	mux.HandleFunc("POST /login", server.login)
 	mux.HandleFunc("POST /logout", server.logout)
+	mux.HandleFunc("POST /api/session", server.createAPISession)
+	mux.HandleFunc("DELETE /api/session", server.deleteAPISession)
+	mux.HandleFunc("GET /api/home", server.apiHome)
+	mux.HandleFunc("GET /api/episodes/{id}", server.apiEpisodeDetail)
+	mux.HandleFunc("POST /api/episodes/{id}/queue", server.apiQueueEpisode)
+	mux.HandleFunc("POST /api/episodes/{id}/archive", server.apiArchiveEpisode)
+	mux.HandleFunc("POST /api/episodes/{id}/played", server.apiMarkEpisodePlayed)
 	mux.HandleFunc("GET /library", server.library)
 	mux.HandleFunc("POST /feeds", server.addFeed)
 	mux.HandleFunc("GET /feeds/{id}", server.feed)
@@ -267,7 +274,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 		}()
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if !sameOrigin(r) {
+			if !safeWriteRequest(r) {
 				s.logger.Debug("cross-origin request rejected",
 					"method", r.Method,
 					"path", r.URL.Path,
@@ -298,7 +305,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 const sessionCookieName = "castdock_session"
 
 func publicAuthPath(path string) bool {
-	return path == "/login" || path == "/healthz" || strings.HasPrefix(path, "/static/")
+	return path == "/login" || path == "/healthz" || path == "/api/session" || strings.HasPrefix(path, "/static/")
 }
 
 func (s *Server) authenticated(r *http.Request) bool {
@@ -340,23 +347,72 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, fmt.Errorf("create session: %w", err))
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(s.authentication.TTL().Seconds()),
-		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
-	})
+	s.setSessionCookie(w, r, token)
 	s.logger.Info("login succeeded", "remote_address", remoteHost(r.RemoteAddr))
 	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+type apiSessionRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) createAPISession(w http.ResponseWriter, r *http.Request) {
+	if !s.authentication.Enabled() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	var request apiSessionRequest
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid login payload", http.StatusBadRequest)
+		return
+	}
+	if !s.authentication.Authenticate(request.Username, request.Password) {
+		time.Sleep(250 * time.Millisecond)
+		s.logger.Warn("API login failed", "remote_address", remoteHost(r.RemoteAddr), "client", r.Header.Get("X-CastDock-Client"))
+		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		return
+	}
+	token, err := s.authentication.CreateSession()
+	if err != nil {
+		s.internalError(w, r, fmt.Errorf("create API session: %w", err))
+		return
+	}
+	s.setSessionCookie(w, r, token)
+	s.logger.Info("API login succeeded", "remote_address", remoteHost(r.RemoteAddr), "client", r.Header.Get("X-CastDock-Client"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteAPISession(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		s.authentication.Revoke(cookie.Value)
+	}
+	s.clearSessionCookie(w, r)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		s.authentication.Revoke(cookie.Value)
 	}
+	s.clearSessionCookie(w, r)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(s.authentication.TTL().Seconds()),
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func requestIsHTTPS(r *http.Request) bool {
@@ -414,6 +470,13 @@ func sameOrigin(r *http.Request) bool {
 	return err == nil && strings.EqualFold(parsed.Host, r.Host)
 }
 
+func safeWriteRequest(r *http.Request) bool {
+	if strings.HasPrefix(r.URL.Path, "/api/") && r.Header.Get("Origin") == "" && strings.TrimSpace(r.Header.Get("X-CastDock-Client")) != "" {
+		return true
+	}
+	return sameOrigin(r)
+}
+
 func requestOriginHost(r *http.Request) string {
 	source := r.Header.Get("Origin")
 	if source == "" {
@@ -424,6 +487,133 @@ func requestOriginHost(r *http.Request) string {
 		return ""
 	}
 	return parsed.Host
+}
+
+type apiHomeResponse struct {
+	Inbox  []apiEpisodeResponse `json:"inbox"`
+	UpNext []apiEpisodeResponse `json:"upNext"`
+}
+
+type apiEpisodeResponse struct {
+	ID              int64                `json:"id"`
+	FeedID          int64                `json:"feedId"`
+	PodcastTitle    string               `json:"podcastTitle"`
+	Title           string               `json:"title"`
+	Description     string               `json:"description"`
+	PublishedAt     *time.Time           `json:"publishedAt,omitempty"`
+	DurationSeconds int                  `json:"durationSeconds"`
+	EnclosureURL    string               `json:"enclosureUrl"`
+	EnclosureType   string               `json:"enclosureType"`
+	ImageURL        string               `json:"imageUrl,omitempty"`
+	State           podcast.EpisodeState `json:"state"`
+	QueuePosition   *int                 `json:"queuePosition,omitempty"`
+	PositionSeconds float64              `json:"positionSeconds"`
+	PlayedDuration  float64              `json:"playedDuration"`
+	Completed       bool                 `json:"completed"`
+	PlaybackUpdated *time.Time           `json:"playbackUpdatedAt,omitempty"`
+	PlaybackSpeed   float64              `json:"playbackSpeed"`
+}
+
+func newAPIEpisode(episode podcast.Episode) apiEpisodeResponse {
+	imageURL := episode.ImageURL
+	if imageURL == "" {
+		imageURL = episode.FeedImageURL
+	}
+	return apiEpisodeResponse{
+		ID: episode.ID, FeedID: episode.FeedID, PodcastTitle: episode.FeedTitle,
+		Title: episode.Title, Description: episode.Description, PublishedAt: episode.PublishedAt,
+		DurationSeconds: episode.DurationSeconds, EnclosureURL: episode.EnclosureURL,
+		EnclosureType: episode.EnclosureType, ImageURL: imageURL, State: episode.State,
+		QueuePosition: episode.QueuePosition, PositionSeconds: episode.PositionSeconds,
+		PlayedDuration: episode.PlayedDuration, Completed: episode.Completed,
+		PlaybackUpdated: episode.PlaybackUpdated, PlaybackSpeed: episode.FeedPlaybackSpeed,
+	}
+}
+
+func apiEpisodes(episodes []podcast.Episode) []apiEpisodeResponse {
+	result := make([]apiEpisodeResponse, 0, len(episodes))
+	for _, episode := range episodes {
+		result = append(result, newAPIEpisode(episode))
+	}
+	return result
+}
+
+func (s *Server) apiHome(w http.ResponseWriter, r *http.Request) {
+	inbox, err := s.repository.InboxEpisodes(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	queued, err := s.repository.QueuedEpisodes(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.writeJSON(w, apiHomeResponse{Inbox: apiEpisodes(inbox), UpNext: apiEpisodes(queued)})
+}
+
+func (s *Server) apiEpisodeDetail(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	episode, err := s.repository.Episode(r.Context(), id)
+	if errors.Is(err, storage.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.writeJSON(w, newAPIEpisode(episode))
+}
+
+func (s *Server) apiQueueEpisode(w http.ResponseWriter, r *http.Request) {
+	s.apiSetEpisodeState(w, r, podcast.EpisodeStateQueued)
+}
+
+func (s *Server) apiArchiveEpisode(w http.ResponseWriter, r *http.Request) {
+	s.apiSetEpisodeState(w, r, podcast.EpisodeStateArchived)
+}
+
+func (s *Server) apiSetEpisodeState(w http.ResponseWriter, r *http.Request, state podcast.EpisodeState) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.repository.SetEpisodeState(r.Context(), id, state); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) apiMarkEpisodePlayed(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.repository.MarkEpisodePlayed(r.Context(), id); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) writeJSON(w http.ResponseWriter, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		s.logger.Error("write JSON response", "error", err)
+	}
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
