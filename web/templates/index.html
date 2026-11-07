@@ -1,50 +1,62 @@
 {{define "index"}}
 {{template "header" .}}
-<section class="hero">
+<section class="hero dashboard-hero">
   <div>
-    <p class="eyebrow">Your podcast library</p>
+    <p class="eyebrow">Your listening dashboard</p>
     <h1>Listen on your terms.</h1>
-    <p>Subscribe to a public RSS feed or import an OPML collection.</p>
+    <p>Process new releases, shape your queue, and continue listening.</p>
   </div>
-  <form class="subscribe-form" method="post" action="/feeds">
-    <label for="feed-url">Podcast feed URL</label>
-    <div class="form-row">
-      <input id="feed-url" name="url" type="url" placeholder="https://example.com/feed.xml" required>
-      <button type="submit">Subscribe</button>
+  <div class="dashboard-links">
+    <a class="button" href="/up-next/play">Play Up Next</a>
+    <a class="button secondary dark-secondary" href="/recent">Browse recent episodes</a>
+    <a class="button secondary dark-secondary" href="/library">Manage library</a>
+  </div>
+</section>
+
+<section class="section-heading inbox-heading" id="inbox">
+  <p class="eyebrow">Inbox · {{len .InboxEpisodes}}</p>
+</section>
+{{if .InboxEpisodes}}
+<div class="episode-list inbox-list">
+  {{range .InboxEpisodes}}
+  <article class="episode-row episode-row-actions">
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <div class="episode-actions">
+      <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="/"><button type="submit">Add to Up Next</button></form>
+      <form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Archive</button></form>
     </div>
-  </form>
-</section>
-
-<section class="section-heading">
-  <div><p class="eyebrow">Subscriptions</p><h2>{{len .Feeds}} podcasts</h2></div>
-  {{if .Feeds}}
-  <form method="post" action="/refresh"><button class="secondary" type="submit">Refresh all</button></form>
-  {{end}}
-</section>
-
-{{if .Feeds}}
-<div class="feed-grid">
-  {{range .Feeds}}
-  <a class="feed-card" href="/feeds/{{.ID}}">
-    {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
-    <div><h3>{{if .Title}}{{.Title}}{{else}}{{.URL}}{{end}}</h3><p>{{.EpisodeCount}} episodes</p></div>
-  </a>
+  </article>
   {{end}}
 </div>
 {{else}}
-<div class="empty-state"><h2>No subscriptions yet</h2><p>Add one feed above or <a href="/import">import an OPML file</a>.</p></div>
+<div class="empty-state inbox-empty"><h2>Inbox zero</h2><p>New episodes discovered during feed refreshes will appear here.</p></div>
 {{end}}
 
-{{if .Episodes}}
-<section class="section-heading"><div><p class="eyebrow">Recently published</p><h2>Latest episodes</h2></div></section>
-<div class="episode-list">
-  {{range .Episodes}}
-  <a class="episode-row" href="/episodes/{{.ID}}">
-    <div><h3>{{.Title}}</h3><p>{{date .PublishedAt}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· {{duration .PositionSeconds}} listened{{end}}</p></div>
-    <span aria-hidden="true">Play →</span>
-  </a>
+<section class="section-heading" id="up-next">
+  <p class="eyebrow">Up Next · {{len .QueuedEpisodes}}</p>
+  {{if .QueuedEpisodes}}<a class="button secondary" href="/up-next/play">Play next</a>{{end}}
+</section>
+{{if .QueuedEpisodes}}
+<ol class="queue-list home-queue" id="up-next-queue" aria-label="Up Next queue">
+  {{range .QueuedEpisodes}}
+  <li class="queue-item" draggable="true" data-episode-id="{{.ID}}" data-queue-position="{{.QueuePosition}}">
+    <button class="drag-handle" type="button" aria-label="Drag {{.Title}} to reorder" title="Drag to reorder">⋮⋮</button>
+    <span class="queue-position">{{.QueuePosition}}</span>
+    <a class="queue-art" href="/episodes/{{.ID}}">
+      {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else if .FeedImageURL}}<img src="{{.FeedImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
+    </a>
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <div class="queue-actions">
+      <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="up"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} up">↑</button></form>
+      <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="down"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} down">↓</button></form>
+      <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Remove</button></form>
+    </div>
+  </li>
   {{end}}
-</div>
+</ol>
+<script src="/static/queue.js" defer></script>
+{{else}}
+<div class="empty-state"><h2>Nothing queued</h2><p>Add an episode from Inbox, Recent, or Archive.</p></div>
 {{end}}
 {{template "footer" .}}
 {{end}}

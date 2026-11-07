@@ -38,7 +38,7 @@ func TestInboxArchiveAndQueueWorkflow(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	inbox := performRequest(server, http.MethodGet, "http://castdock.test/inbox", "", "")
+	inbox := performRequest(server, http.MethodGet, "http://castdock.test/", "", "")
 	if inbox.Code != http.StatusOK || !strings.Contains(inbox.Body.String(), "New episode") || strings.Contains(inbox.Body.String(), "Old episode") {
 		t.Fatalf("unexpected inbox: status=%d body=%s", inbox.Code, inbox.Body.String())
 	}
@@ -54,7 +54,7 @@ func TestInboxArchiveAndQueueWorkflow(t *testing.T) {
 	if queue.Code != http.StatusSeeOther {
 		t.Fatalf("queue status=%d body=%s", queue.Code, queue.Body.String())
 	}
-	upNext := performRequest(server, http.MethodGet, "http://castdock.test/up-next", "", "")
+	upNext := performRequest(server, http.MethodGet, "http://castdock.test/", "", "")
 	if upNext.Code != http.StatusOK || !strings.Contains(upNext.Body.String(), "New episode") {
 		t.Fatalf("unexpected queue: status=%d body=%s", upNext.Code, upNext.Body.String())
 	}

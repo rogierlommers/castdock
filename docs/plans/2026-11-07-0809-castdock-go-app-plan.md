@@ -14,7 +14,7 @@ Deliver a runnable single-user Go podcast server that imports individual feeds a
 
 - Runtime configuration is exclusively environment-variable based, validated at startup, and documented in `.env.example`.
 - SQLite stores subscriptions, episodes, and per-episode playback state.
-- OPML import recursively discovers `xmlUrl` outlines, skips duplicate subscriptions, and reports imported, skipped, and failed feeds.
+- Library-scoped OPML import recursively discovers `xmlUrl` outlines, skips duplicate subscriptions, and reports imported, skipped, and failed feeds; OPML export downloads all current subscriptions.
 - Audio streams directly from publisher enclosure URLs; CastDock does not proxy or download media.
 - The web player resumes persisted position and saves while playing every five seconds plus immediately on pause, seek, completion, page hide, and episode change.
 - Feed refresh is both scheduled and manually triggerable.

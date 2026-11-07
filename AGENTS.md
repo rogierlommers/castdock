@@ -2,8 +2,8 @@
 
 ## Current State
 
-- The Go web app is runnable. The SwiftUI client remains a scaffold with no Xcode project.
-- The initial product is a single-user, self-hosted podcast library: it ingests external RSS feeds, tracks playback, serves a Go-rendered web UI, and supports a native SwiftUI client.
+- The Go web app is runnable. iOS, Android, and Linux/macOS CLI clients remain scaffolds under `clients/`.
+- The initial product is a single-user, self-hosted podcast library: it ingests external RSS feeds, tracks playback, serves a Go-rendered web UI, and exposes contracts for future native and CLI clients.
 - The deployment baseline is one Go service with SQLite under Docker Compose. Treat changes to those choices as architecture decisions, not incidental implementation details.
 
 ## Commands
@@ -24,9 +24,10 @@
 - `internal/storage/` implements persistence and owns SQLite-specific code. Do not expose SQL rows or migration details to domain or client code.
 - `internal/server/` owns HTTP transport, API handlers, middleware, and web delivery. Keep business rules out of handlers.
 - `web/` belongs to the Go service and is shipped with it; it is not a separate Node application.
-- `ios/CastDock/` communicates through the service API. It must not depend on the SQLite schema or duplicate server-owned feed rules.
+- Everything under `clients/` communicates through the service API. Clients must not depend on the SQLite schema or duplicate server-owned feed, playback, inbox, archive, or queue rules.
 - `migrations/` is the ordered history of persistent-schema changes. Never edit an applied migration; add a new one.
 - Runtime configuration is environment-only. Add new settings to `internal/config`, `.env.example`, `README.md`, and Compose together; do not introduce runtime config files or CLI flags.
+- `api/openapi.yaml` is the published HTTP contract. Update it with every documented route, request, response, or compatibility change; `/swagger/` must remain self-hosted.
 - Access logs are opt-in through `CASTDOCK_ACCESS_LOG_ENABLED`; do not put per-request noise back under the general debug level. Migration progress and summaries are ordinary startup logs, with already-applied files visible at debug level.
 
 ## Safety and Operations
@@ -41,6 +42,8 @@
 - Playback updates are last-write-wins by client timestamp. The browser saves every five seconds while playing and on play, pause, seek, completion, and page hide; preserve out-of-order-write protection.
 - Episode lifecycle is server-owned: initial feed history and existing migrated rows are `archived`, episodes discovered on later refreshes are `inbox`, and user-selected episodes are `queued`. Feed upserts must preserve an existing episode's state.
 - Queue positions are unique and contiguous. Append, reorder, removal, and completed-playback transitions must remain transactional; completing a queued episode archives it and advances the web player.
+- Up Next is managed on the landing page; `/up-next` is only a compatibility redirect. Drag-and-drop persists through `POST /queue/reorder`, while up/down forms remain the accessible touch and keyboard fallback.
+- Full-library refreshes are application-owned background work, never request-owned. Manual and scheduled runs share a single-flight guard, shutdown waits for cancellation to settle, and `context.Canceled` must not be persisted as a feed error.
 - Audio comes directly from publisher enclosure URLs. Do not add proxying or downloads without revisiting storage, range requests, SSRF, and backup behavior.
 - Feed requests reject private, loopback, link-local, and carrier-grade NAT destinations by default, including after DNS resolution and redirects. `CASTDOCK_ALLOW_PRIVATE_FEEDS=true` is an explicit opt-out.
 - HTML descriptions are reduced to plain text during ingestion. Do not render publisher markup as trusted template HTML.

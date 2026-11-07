@@ -2,8 +2,10 @@ package syndication
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sync"
 	"time"
 
@@ -20,10 +22,12 @@ type Repository interface {
 }
 
 type Service struct {
-	repository  Repository
-	fetcher     *Fetcher
-	logger      *slog.Logger
-	concurrency int
+	appContext   context.Context
+	repository   Repository
+	fetcher      *Fetcher
+	logger       *slog.Logger
+	concurrency  int
+	refreshAllMu sync.Mutex
 }
 
 type ImportResult struct {
@@ -31,11 +35,16 @@ type ImportResult struct {
 	Skipped   int
 	Refreshed int
 	Failed    int
+	Canceled  int
+	Busy      bool
 	Errors    []string
 }
 
-func NewService(repository Repository, fetcher *Fetcher, logger *slog.Logger, concurrency int) *Service {
-	return &Service{repository: repository, fetcher: fetcher, logger: logger, concurrency: concurrency}
+func NewService(appContext context.Context, repository Repository, fetcher *Fetcher, logger *slog.Logger, concurrency int) *Service {
+	if appContext == nil {
+		appContext = context.Background()
+	}
+	return &Service{appContext: appContext, repository: repository, fetcher: fetcher, logger: logger, concurrency: concurrency}
 }
 
 func (s *Service) Subscribe(ctx context.Context, rawURL string) (podcast.Feed, bool, error) {
@@ -61,9 +70,12 @@ func (s *Service) Refresh(ctx context.Context, feedID int64) error {
 		s.logger.Warn("feed refresh failed", "feed_id", feedID, "duration", time.Since(started), "error", err)
 		return err
 	}
-	s.logger.Debug("feed refresh started", "feed_id", feedID, "feed_title", feed.Title)
 	result, err := s.fetcher.Fetch(ctx, feed)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.logger.Debug("feed refresh canceled", "feed_id", feedID, "feed_title", feed.Title, "duration", time.Since(started))
+			return err
+		}
 		if markErr := s.repository.MarkFeedError(ctx, feedID, err); markErr != nil {
 			s.logger.Error("failed to record feed refresh error", "feed_id", feedID, "error", markErr)
 		}
@@ -75,26 +87,78 @@ func (s *Service) Refresh(ctx context.Context, feedID int64) error {
 			s.logger.Warn("feed refresh failed", "feed_id", feedID, "feed_title", feed.Title, "duration", time.Since(started), "error", err)
 			return err
 		}
-		s.logger.Debug("feed refresh complete", "feed_id", feedID, "feed_title", feed.Title, "not_modified", true, "duration", time.Since(started))
+		s.logRefreshComplete(feed, result, time.Since(started))
 		return nil
 	}
 	if err := s.repository.SaveParsedFeed(ctx, feedID, result.Feed, feed.LastSuccess == nil); err != nil {
 		s.logger.Warn("feed refresh failed", "feed_id", feedID, "feed_title", feed.Title, "duration", time.Since(started), "error", err)
 		return err
 	}
-	s.logger.Debug("feed refresh complete",
-		"feed_id", feedID,
-		"feed_title", result.Feed.Title,
-		"episode_count", len(result.Feed.Episodes),
-		"not_modified", false,
-		"duration", time.Since(started),
-	)
+	s.logRefreshComplete(feed, result, time.Since(started))
 	return nil
 }
 
+func (s *Service) logRefreshComplete(previous podcast.Feed, result FetchResult, duration time.Duration) {
+	parsedURL, _ := url.Parse(previous.URL)
+	feedTitle := previous.Title
+	episodeCount := previous.EpisodeCount
+	outcome := "not_modified"
+	if !result.NotModified {
+		feedTitle = result.Feed.Title
+		episodeCount = len(result.Feed.Episodes)
+		outcome = "updated"
+	}
+	s.logger.Debug("feed refresh complete",
+		"feed_id", previous.ID,
+		"feed_title", feedTitle,
+		"feed_host", parsedURL.Hostname(),
+		"outcome", outcome,
+		"episode_count", episodeCount,
+		"duration", duration,
+	)
+}
+
 func (s *Service) RefreshAll(ctx context.Context) ImportResult {
+	if ctx.Err() != nil {
+		return ImportResult{Canceled: 1}
+	}
+	if !s.refreshAllMu.TryLock() {
+		return ImportResult{Busy: true}
+	}
+	defer s.refreshAllMu.Unlock()
+	return s.refreshAll(ctx)
+}
+
+func (s *Service) StartRefreshAll() bool {
+	if s.appContext.Err() != nil {
+		return false
+	}
+	if !s.refreshAllMu.TryLock() {
+		return false
+	}
+	go func() {
+		defer s.refreshAllMu.Unlock()
+		result := s.refreshAll(s.appContext)
+		s.logger.Info("manual library refresh complete",
+			"refreshed", result.Refreshed,
+			"failed", result.Failed,
+			"canceled", result.Canceled,
+		)
+	}()
+	return true
+}
+
+func (s *Service) WaitForRefreshes() {
+	s.refreshAllMu.Lock()
+	s.refreshAllMu.Unlock()
+}
+
+func (s *Service) refreshAll(ctx context.Context) ImportResult {
 	feeds, err := s.repository.ListFeeds(ctx)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return ImportResult{Canceled: 1}
+		}
 		return ImportResult{Failed: 1, Errors: []string{err.Error()}}
 	}
 	return s.run(ctx, feeds)
@@ -161,6 +225,10 @@ func (s *Service) run(ctx context.Context, feeds []podcast.Feed) ImportResult {
 	result := ImportResult{}
 	for outcome := range results {
 		if outcome.err != nil {
+			if errors.Is(outcome.err, context.Canceled) {
+				result.Canceled++
+				continue
+			}
 			result.Failed++
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", outcome.url, outcome.err))
 		} else {

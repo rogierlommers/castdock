@@ -21,7 +21,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound             = errors.New("not found")
+	ErrInvalidQueuePosition = errors.New("invalid queue position")
+)
 
 type Store struct {
 	db     *sql.DB
@@ -178,19 +181,19 @@ func (s *Store) ListFeeds(ctx context.Context) ([]podcast.Feed, error) {
 const feedSelect = `
 	SELECT f.id, f.url, f.title, f.description, f.site_url, f.image_url,
 	       f.etag, f.last_modified, f.last_checked, f.last_success, f.last_error,
-	       f.created_at, f.updated_at, COUNT(e.id)
+	       f.created_at, f.updated_at, COUNT(e.id), MAX(e.published_at)
 	FROM feeds f LEFT JOIN episodes e ON e.feed_id = f.id`
 
 type scanner interface{ Scan(...any) error }
 
 func scanFeed(row scanner) (podcast.Feed, error) {
 	var feed podcast.Feed
-	var lastChecked, lastSuccess sql.NullString
+	var lastChecked, lastSuccess, lastEpisodePublished sql.NullString
 	var created, updated string
 	err := row.Scan(
 		&feed.ID, &feed.URL, &feed.Title, &feed.Description, &feed.SiteURL, &feed.ImageURL,
 		&feed.ETag, &feed.LastModified, &lastChecked, &lastSuccess, &feed.LastError,
-		&created, &updated, &feed.EpisodeCount,
+		&created, &updated, &feed.EpisodeCount, &lastEpisodePublished,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return podcast.Feed{}, ErrNotFound
@@ -200,6 +203,7 @@ func scanFeed(row scanner) (podcast.Feed, error) {
 	}
 	feed.LastChecked = parseOptionalTime(lastChecked)
 	feed.LastSuccess = parseOptionalTime(lastSuccess)
+	feed.LastEpisodePublished = parseOptionalTime(lastEpisodePublished)
 	feed.CreatedAt = parseTime(created)
 	feed.UpdatedAt = parseTime(updated)
 	return feed, nil
@@ -295,11 +299,35 @@ func (s *Store) EpisodesForFeed(ctx context.Context, feedID int64, limit, offset
 	return scanEpisodes(rows)
 }
 
-func (s *Store) RecentEpisodes(ctx context.Context, limit int) ([]podcast.Episode, error) {
+func (s *Store) RecentEpisodes(ctx context.Context, limit, offset int) ([]podcast.Episode, error) {
 	rows, err := s.db.QueryContext(ctx, episodeSelect+`
-		ORDER BY e.published_at DESC, e.id DESC LIMIT ?`, limit)
+		ORDER BY e.published_at DESC, e.id DESC
+		LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list recent episodes: %w", err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) PlayHistoryEpisodes(ctx context.Context, limit int) ([]podcast.Episode, error) {
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		WHERE p.updated_at IS NOT NULL AND (p.position_seconds > 0 OR p.completed = 1)
+		ORDER BY p.updated_at DESC, e.id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list play history: %w", err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) InboxEpisodes(ctx context.Context) ([]podcast.Episode, error) {
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		WHERE e.state = ?
+		ORDER BY e.published_at DESC, e.id DESC`, podcast.EpisodeStateInbox)
+	if err != nil {
+		return nil, fmt.Errorf("list inbox episodes: %w", err)
 	}
 	defer rows.Close()
 	return scanEpisodes(rows)
@@ -353,7 +381,7 @@ func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) 
 }
 
 const episodeSelect = `
-	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), e.guid, e.title, e.description, e.published_at,
+	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), f.image_url, e.guid, e.title, e.description, e.published_at,
 	       e.duration_seconds, e.enclosure_url, e.enclosure_type, e.image_url,
 	       e.created_at, e.updated_at,
 	       COALESCE(p.position_seconds, 0), COALESCE(p.duration_seconds, 0),
@@ -381,7 +409,7 @@ func scanEpisode(row scanner) (podcast.Episode, error) {
 	var queuePosition sql.NullInt64
 	var created, updated string
 	err := row.Scan(
-		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.GUID, &episode.Title, &episode.Description,
+		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.FeedImageURL, &episode.GUID, &episode.Title, &episode.Description,
 		&published, &episode.DurationSeconds, &episode.EnclosureURL, &episode.EnclosureType,
 		&episode.ImageURL, &created, &updated, &episode.PositionSeconds, &episode.PlayedDuration,
 		&episode.Completed, &episode.Playing, &playbackUpdated, &episode.State, &queuePosition,
@@ -482,6 +510,52 @@ func (s *Store) MoveQueuedEpisode(ctx context.Context, episodeID int64, directio
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit queue move: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ReorderQueuedEpisode(ctx context.Context, episodeID int64, targetPosition int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin queue reorder: %w", err)
+	}
+	defer tx.Rollback()
+	var currentPosition, queueLength int
+	if err := tx.QueryRowContext(ctx, "SELECT queue_position FROM episodes WHERE id = ? AND state = ?", episodeID, podcast.EpisodeStateQueued).Scan(&currentPosition); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("read queue position: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM episodes WHERE state = ?", podcast.EpisodeStateQueued).Scan(&queueLength); err != nil {
+		return fmt.Errorf("count queue: %w", err)
+	}
+	if targetPosition < 1 || targetPosition > queueLength {
+		return fmt.Errorf("%w: must be between 1 and %d", ErrInvalidQueuePosition, queueLength)
+	}
+	if targetPosition == currentPosition {
+		return tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = -queue_position WHERE state = ?", podcast.EpisodeStateQueued); err != nil {
+		return fmt.Errorf("reserve queue positions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE episodes SET queue_position = CASE
+			WHEN -queue_position = ? THEN ?
+			WHEN ? < ? AND -queue_position > ? AND -queue_position <= ? THEN -queue_position - 1
+			WHEN ? > ? AND -queue_position >= ? AND -queue_position < ? THEN -queue_position + 1
+			ELSE -queue_position
+		END
+		WHERE state = ?`,
+		currentPosition, targetPosition,
+		currentPosition, targetPosition, currentPosition, targetPosition,
+		currentPosition, targetPosition, targetPosition, currentPosition,
+		podcast.EpisodeStateQueued,
+	); err != nil {
+		return fmt.Errorf("reorder queue: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit queue reorder: %w", err)
 	}
 	return nil
 }

@@ -1,0 +1,171 @@
+openapi: 3.0.3
+info:
+  title: CastDock API
+  version: 0.1.0
+  description: |
+    HTTP endpoints used by CastDock's web player and subscription tooling.
+    CastDock is a single-user, self-hosted application and currently has no
+    application-level authentication. Keep the service on a trusted network.
+servers:
+  - url: /
+tags:
+  - name: System
+  - name: Playback
+  - name: Queue
+  - name: Subscriptions
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      summary: Check service and database health
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "ok\n"
+        "503":
+          description: Database is unavailable
+  /api/episodes/{id}/playback:
+    post:
+      tags: [Playback]
+      summary: Save episode playback state
+      description: Older updates are ignored using the clientUpdatedAt timestamp. Completing a queued episode archives it and may return the next queued episode.
+      operationId: saveEpisodePlayback
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaybackUpdate"
+      responses:
+        "200":
+          description: Playback state saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackUpdateResponse"
+        "400":
+          description: Invalid episode ID, timestamp, position, or request body
+        "403":
+          description: Cross-origin write rejected
+        "500":
+          description: Internal server error
+  /api/queue/reorder:
+    post:
+      tags: [Queue]
+      summary: Move a queued episode to an absolute position
+      operationId: reorderQueue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueueReorder"
+      responses:
+        "204":
+          description: Queue reordered
+        "400":
+          description: Invalid payload or target position
+        "403":
+          description: Cross-origin write rejected
+        "404":
+          description: Episode is not queued
+        "500":
+          description: Internal server error
+  /library/import:
+    post:
+      tags: [Subscriptions]
+      summary: Import subscriptions from OPML
+      operationId: importOPML
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [opml]
+              properties:
+                opml:
+                  type: string
+                  format: binary
+      responses:
+        "303":
+          description: Import completed or validation failed; redirects to Library with a result message
+        "403":
+          description: Cross-origin write rejected
+  /library/export.opml:
+    get:
+      tags: [Subscriptions]
+      summary: Export all subscriptions as OPML 2.0
+      operationId: exportOPML
+      responses:
+        "200":
+          description: OPML subscription document
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            text/x-opml:
+              schema:
+                type: string
+                format: binary
+        "500":
+          description: Internal server error
+components:
+  parameters:
+    EpisodeID:
+      name: id
+      in: path
+      required: true
+      description: Numeric episode ID
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    PlaybackUpdate:
+      type: object
+      required: [position, duration, completed, playing, clientUpdatedAt]
+      additionalProperties: false
+      properties:
+        position:
+          type: number
+          format: double
+          minimum: 0
+        duration:
+          type: number
+          format: double
+          minimum: 0
+        completed:
+          type: boolean
+        playing:
+          type: boolean
+        clientUpdatedAt:
+          type: string
+          format: date-time
+    PlaybackUpdateResponse:
+      type: object
+      properties:
+        nextEpisodeUrl:
+          type: string
+          description: Relative URL of the next queued episode, when completion advanced the queue
+          example: /episodes/42
+    QueueReorder:
+      type: object
+      required: [episodeId, targetPosition]
+      additionalProperties: false
+      properties:
+        episodeId:
+          type: integer
+          format: int64
+          minimum: 1
+        targetPosition:
+          type: integer
+          minimum: 1

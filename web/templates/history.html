@@ -1,0 +1,41 @@
+{{define "history"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">Your listening activity</p><h1>Play History</h1><p>The 20 episodes you played most recently.</p></div>
+</section>
+{{if .Episodes}}
+<div class="recent-list">
+  {{range .Episodes}}
+  <article class="recent-card">
+    <a class="recent-art" href="/episodes/{{.ID}}">
+      {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else if .FeedImageURL}}<img src="{{.FeedImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
+    </a>
+    <div class="recent-content">
+      <div class="episode-statuses">
+        <span class="state-badge">{{.State}}</span>
+        {{if .Completed}}<span class="state-badge played">Played</span>{{else}}<span class="state-badge">In progress</span>{{end}}
+      </div>
+      <a class="episode-link" href="/episodes/{{.ID}}"><h2>{{.Title}}</h2></a>
+      <p class="episode-meta">{{.FeedTitle}} · Published {{date .PublishedAt}}</p>
+      <p class="play-timestamp"><strong>Finished playing:</strong> {{relativeTime .PlaybackUpdated}}</p>
+      <details class="show-notes">
+        <summary>Description and show notes</summary>
+        {{if .Description}}<p>{{.Description}}</p>{{else}}<p>No description or show notes were supplied.</p>{{end}}
+      </details>
+      <div class="episode-actions">
+        {{if eq .State "queued"}}
+        <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Remove from Up Next</button></form>
+        {{else}}
+        <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button type="submit">Add to Up Next</button></form>
+        {{if eq .State "inbox"}}<form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Archive</button></form>{{end}}
+        {{end}}
+      </div>
+    </div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><h2>No play history yet</h2><p>Episodes appear here after playback progress has been saved.</p></div>
+{{end}}
+{{template "footer" .}}
+{{end}}

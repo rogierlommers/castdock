@@ -41,7 +41,7 @@ func run() error {
 	defer store.Close()
 
 	fetcher := syndication.NewFetcher(cfg.HTTPTimeout, cfg.MaxFeedBytes, cfg.AllowPrivateFeeds)
-	feedService := syndication.NewService(store, fetcher, logger, cfg.RefreshConcurrency)
+	feedService := syndication.NewService(ctx, store, fetcher, logger, cfg.RefreshConcurrency)
 	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds, cfg.AccessLogEnabled)
 	if err != nil {
 		return err
@@ -68,8 +68,12 @@ func run() error {
 	case <-ctx.Done():
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer shutdownCancel()
-		return httpServer.Shutdown(shutdownCtx)
+		shutdownErr := httpServer.Shutdown(shutdownCtx)
+		feedService.WaitForRefreshes()
+		return shutdownErr
 	case err := <-serverErrors:
+		cancel()
+		feedService.WaitForRefreshes()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -98,7 +102,11 @@ func scheduleRefresh(ctx context.Context, logger *slog.Logger, service *syndicat
 			return
 		case <-ticker.C:
 			result := service.RefreshAll(ctx)
-			logger.Info("scheduled refresh complete", "refreshed", result.Refreshed, "failed", result.Failed)
+			if result.Busy {
+				logger.Info("scheduled refresh skipped; library refresh already running")
+				continue
+			}
+			logger.Info("scheduled refresh complete", "refreshed", result.Refreshed, "failed", result.Failed, "canceled", result.Canceled)
 		}
 	}
 }

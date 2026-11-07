@@ -11,26 +11,28 @@ const (
 )
 
 type Feed struct {
-	ID           int64
-	URL          string
-	Title        string
-	Description  string
-	SiteURL      string
-	ImageURL     string
-	ETag         string
-	LastModified string
-	LastChecked  *time.Time
-	LastSuccess  *time.Time
-	LastError    string
-	EpisodeCount int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                   int64
+	URL                  string
+	Title                string
+	Description          string
+	SiteURL              string
+	ImageURL             string
+	ETag                 string
+	LastModified         string
+	LastChecked          *time.Time
+	LastSuccess          *time.Time
+	LastEpisodePublished *time.Time
+	LastError            string
+	EpisodeCount         int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type Episode struct {
 	ID              int64
 	FeedID          int64
 	FeedTitle       string
+	FeedImageURL    string
 	GUID            string
 	Title           string
 	Description     string

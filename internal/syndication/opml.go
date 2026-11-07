@@ -6,9 +6,34 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/rlommers/castdock/internal/podcast"
 )
 
 var ErrNoFeeds = errors.New("OPML contains no valid podcast feed URLs")
+
+type opmlExportDocument struct {
+	XMLName xml.Name       `xml:"opml"`
+	Version string         `xml:"version,attr"`
+	Head    opmlExportHead `xml:"head"`
+	Body    opmlExportBody `xml:"body"`
+}
+
+type opmlExportHead struct {
+	Title string `xml:"title"`
+}
+
+type opmlExportBody struct {
+	Outlines []opmlExportOutline `xml:"outline"`
+}
+
+type opmlExportOutline struct {
+	Text    string `xml:"text,attr"`
+	Title   string `xml:"title,attr"`
+	Type    string `xml:"type,attr"`
+	XMLURL  string `xml:"xmlUrl,attr"`
+	HTMLURL string `xml:"htmlUrl,attr,omitempty"`
+}
 
 type opmlDocument struct {
 	Body opmlBody `xml:"body"`
@@ -52,4 +77,22 @@ func ParseOPML(reader io.Reader) ([]string, error) {
 		return nil, ErrNoFeeds
 	}
 	return urls, nil
+}
+
+func ExportOPML(feeds []podcast.Feed) ([]byte, error) {
+	document := opmlExportDocument{Version: "2.0", Head: opmlExportHead{Title: "CastDock subscriptions"}}
+	for _, feed := range feeds {
+		title := strings.TrimSpace(feed.Title)
+		if title == "" {
+			title = feed.URL
+		}
+		document.Body.Outlines = append(document.Body.Outlines, opmlExportOutline{
+			Text: title, Title: title, Type: "rss", XMLURL: feed.URL, HTMLURL: feed.SiteURL,
+		})
+	}
+	contents, err := xml.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("export OPML: %w", err)
+	}
+	return append([]byte(xml.Header), contents...), nil
 }

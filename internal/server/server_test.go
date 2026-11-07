@@ -14,21 +14,37 @@ import (
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
 	"github.com/rlommers/castdock/internal/storage"
+	"github.com/rlommers/castdock/internal/syndication"
+	webassets "github.com/rlommers/castdock/web"
 )
 
 type fakeRepository struct {
-	saved        playback.State
-	advanceQueue bool
-	next         podcast.Episode
-	stateID      int64
-	state        podcast.EpisodeState
-	queued       []podcast.Episode
+	saved         playback.State
+	advanceQueue  bool
+	next          podcast.Episode
+	stateID       int64
+	state         podcast.EpisodeState
+	queued        []podcast.Episode
+	inbox         []podcast.Episode
+	recent        []podcast.Episode
+	history       []podcast.Episode
+	historyLimit  int
+	feeds         []podcast.Feed
+	reorderID     int64
+	reorderTarget int
 }
 
 func (f *fakeRepository) Health(context.Context) error                      { return nil }
-func (f *fakeRepository) ListFeeds(context.Context) ([]podcast.Feed, error) { return nil, nil }
-func (f *fakeRepository) RecentEpisodes(context.Context, int) ([]podcast.Episode, error) {
-	return nil, nil
+func (f *fakeRepository) ListFeeds(context.Context) ([]podcast.Feed, error) { return f.feeds, nil }
+func (f *fakeRepository) RecentEpisodes(context.Context, int, int) ([]podcast.Episode, error) {
+	return f.recent, nil
+}
+func (f *fakeRepository) PlayHistoryEpisodes(_ context.Context, limit int) ([]podcast.Episode, error) {
+	f.historyLimit = limit
+	return f.history, nil
+}
+func (f *fakeRepository) InboxEpisodes(context.Context) ([]podcast.Episode, error) {
+	return f.inbox, nil
 }
 func (f *fakeRepository) Feed(context.Context, int64) (podcast.Feed, error) {
 	return podcast.Feed{}, nil
@@ -57,6 +73,11 @@ func (f *fakeRepository) SetEpisodeState(_ context.Context, id int64, state podc
 	return nil
 }
 func (f *fakeRepository) MoveQueuedEpisode(context.Context, int64, int) error { return nil }
+func (f *fakeRepository) ReorderQueuedEpisode(_ context.Context, id int64, target int) error {
+	f.reorderID = id
+	f.reorderTarget = target
+	return nil
+}
 func (f *fakeRepository) SavePlayback(_ context.Context, state playback.State) (bool, error) {
 	f.saved = state
 	return f.advanceQueue, nil
@@ -73,20 +94,155 @@ func newTestServer(t *testing.T, repository Repository) *Server {
 }
 
 func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
-	server := newTestServer(t, &fakeRepository{})
+	position := 1
+	secondPosition := 2
+	server := newTestServer(t, &fakeRepository{
+		inbox: []podcast.Episode{{
+			ID: 11, Title: "Inbox episode", FeedTitle: "Example podcast", State: podcast.EpisodeStateInbox,
+		}},
+		queued: []podcast.Episode{{
+			ID: 12, Title: "Queued at home", FeedTitle: "Example podcast", FeedImageURL: "https://example.com/feed-cover.jpg", State: podcast.EpisodeStateQueued, QueuePosition: &position,
+		}, {
+			ID: 13, Title: "Queued with episode art", FeedTitle: "Example podcast", ImageURL: "https://example.com/episode-cover.jpg", FeedImageURL: "https://example.com/unused-feed-cover.jpg", State: podcast.EpisodeStateQueued, QueuePosition: &secondPosition,
+		}},
+	})
 	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "No subscriptions yet") {
-		t.Fatalf("unexpected body: %s", response.Body.String())
+	body := response.Body.String()
+	if !strings.Contains(body, "Inbox episode") || !strings.Contains(body, "/episodes/11/queue") || !strings.Contains(body, "/episodes/11/archive") {
+		t.Fatalf("landing page inbox actions missing: %s", body)
+	}
+	if inboxPosition, queuePosition := strings.Index(body, "Inbox · 1"), strings.Index(body, "Up Next · 2"); inboxPosition < 0 || queuePosition < 0 || inboxPosition > queuePosition {
+		t.Fatalf("inbox is not above Up Next: %s", body)
+	}
+	if !strings.Contains(body, "Queued at home") || !strings.Contains(body, "/episodes/12/queue/remove") {
+		t.Fatalf("landing page queue actions missing: %s", body)
+	}
+	for _, expected := range []string{"feed-cover.jpg", "episode-cover.jpg"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("landing page queue artwork missing %q: %s", expected, body)
+		}
+	}
+	for _, expected := range []string{`draggable="true"`, `Drag Queued at home to reorder`, `/static/queue.js`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("landing page drag-and-drop missing %q: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "unused-feed-cover.jpg") {
+		t.Fatalf("feed artwork was used despite episode artwork: %s", body)
+	}
+	if strings.Contains(body, "Subscriptions") || strings.Contains(body, "Podcast feed URL") {
+		t.Fatalf("library content still appears on homepage: %s", body)
+	}
+	if strings.Contains(body, "Open Inbox") || strings.Contains(body, "Needs your attention") || strings.Contains(body, "Listening order") {
+		t.Fatalf("legacy homepage headings or controls remain: %s", body)
+	}
+	homeNav := strings.Index(body, `href="/">Home`)
+	recentNav := strings.Index(body, `href="/recent">Recent Published`)
+	historyNav := strings.Index(body, `href="/history">Play History`)
+	libraryNav := strings.Index(body, `href="/library">Library`)
+	if homeNav < 0 || recentNav < homeNav || historyNav < recentNav || libraryNav < historyNav {
+		t.Fatalf("navigation is not Home, Recent Published, Play History, Library: %s", body)
 	}
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("Content-Security-Policy is missing")
 	}
 }
+
+func TestLibraryPageRendersSubscriptionsAndManagement(t *testing.T) {
+	lastScan := time.Date(2026, 11, 7, 9, 15, 0, 0, time.Local)
+	latestEpisode := time.Date(2026, 11, 6, 8, 0, 0, 0, time.Local)
+	server := newTestServer(t, &fakeRepository{feeds: []podcast.Feed{{
+		ID: 7, Title: "Library podcast", EpisodeCount: 42,
+		LastChecked: &lastScan, LastEpisodePublished: &latestEpisode,
+	}}})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/library", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		"Library podcast", "42 episodes", "Podcast feed URL", "Refresh all", "/feeds/7",
+		"Last scan", "7 Nov 2026, 09:15", "Latest episode", "6 Nov 2026",
+		"Import OPML", "/library/import", "Export OPML", "/library/export.opml",
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("library page missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
+	published := time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC)
+	server := newTestServer(t, &fakeRepository{recent: []podcast.Episode{{
+		ID: 21, Title: "Detailed episode", FeedTitle: "Example podcast",
+		Description: "These are the show notes.", ImageURL: "https://example.com/episode.jpg",
+		PublishedAt: &published, State: podcast.EpisodeStateQueued, Completed: true,
+	}}})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/recent", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		"Detailed episode", "Example podcast", "These are the show notes.",
+		"episode.jpg", "queued", "Played", "Remove from Up Next",
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("recent page missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestPlayHistoryRendersLatestTwentyWithRelativeTimestamp(t *testing.T) {
+	playedAt := time.Now().Add(-90 * time.Minute)
+	repository := &fakeRepository{history: []podcast.Episode{{
+		ID: 22, Title: "Recently played", FeedTitle: "Example podcast",
+		Description: "History show notes", State: podcast.EpisodeStateArchived,
+		PlaybackUpdated: &playedAt, FeedImageURL: "https://example.com/feed.jpg",
+	}}}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/history", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || repository.historyLimit != 20 {
+		t.Fatalf("status = %d, requested limit = %d", response.Code, repository.historyLimit)
+	}
+	for _, expected := range []string{"Play History", "Recently played", "History show notes", "Finished playing:", "one hour ago", "feed.jpg"} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("history page missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestRelativeTime(t *testing.T) {
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		at   *time.Time
+		want string
+	}{
+		{name: "unknown", want: "Unknown"},
+		{name: "one hour", at: timePointer(now.Add(-time.Hour)), want: "one hour ago"},
+		{name: "two days", at: timePointer(now.Add(-48 * time.Hour)), want: "2 days ago"},
+		{name: "old date", at: timePointer(now.Add(-31 * 24 * time.Hour)), want: "7 Oct 2026"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := relativeTime(test.at, now); got != test.want {
+				t.Fatalf("relativeTime() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func timePointer(value time.Time) *time.Time { return &value }
 
 func TestMiddlewareRejectsCrossOriginWrite(t *testing.T) {
 	server := newTestServer(t, &fakeRepository{})
@@ -117,8 +273,47 @@ func TestMiddlewareAcceptsSameOriginFetchMetadataWithoutOriginHeaders(t *testing
 	request.Header.Set("Sec-Fetch-Site", "same-origin")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/library?") {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestLegacyInboxAndImportPagesRedirect(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	tests := []struct {
+		path     string
+		location string
+	}{
+		{path: "/inbox", location: "/#inbox"},
+		{path: "/import", location: "/library#opml"},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(http.MethodGet, "http://castdock.test"+test.path, nil)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != test.location {
+			t.Errorf("GET %s: status=%d location=%q", test.path, response.Code, response.Header().Get("Location"))
+		}
+	}
+}
+
+func TestExportOPMLDownloadsAllSubscriptions(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{feeds: []podcast.Feed{
+		{Title: "First & Best", URL: "https://example.com/one.xml", SiteURL: "https://example.com/one"},
+		{Title: "Second", URL: "https://example.com/two.xml"},
+	}})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/library/export.opml", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/x-opml; charset=utf-8" {
+		t.Fatalf("status=%d content-type=%q body=%s", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	if !strings.Contains(response.Header().Get("Content-Disposition"), "attachment; filename=\"castdock-subscriptions-") {
+		t.Fatalf("Content-Disposition = %q", response.Header().Get("Content-Disposition"))
+	}
+	urls, err := syndication.ParseOPML(strings.NewReader(response.Body.String()))
+	if err != nil || len(urls) != 2 || urls[0] != "https://example.com/one.xml" || urls[1] != "https://example.com/two.xml" {
+		t.Fatalf("exported OPML URLs = %#v, error = %v", urls, err)
 	}
 }
 
@@ -183,7 +378,7 @@ func TestCompletedQueuedPlaybackReturnsNextEpisode(t *testing.T) {
 func TestQueueEpisodeTransitionsStateAndRedirectsLocally(t *testing.T) {
 	repository := &fakeRepository{}
 	server := newTestServer(t, repository)
-	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/episodes/42/queue", strings.NewReader("return_to=%2Finbox"))
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/episodes/42/queue", strings.NewReader("return_to=%2F"))
 	request.Header.Set("Origin", "http://castdock.test")
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
@@ -191,7 +386,7 @@ func TestQueueEpisodeTransitionsStateAndRedirectsLocally(t *testing.T) {
 	if response.Code != http.StatusSeeOther || repository.stateID != 42 || repository.state != podcast.EpisodeStateQueued {
 		t.Fatalf("status = %d, state = %d/%s", response.Code, repository.stateID, repository.state)
 	}
-	if location := response.Header().Get("Location"); !strings.HasPrefix(location, "/inbox?") {
+	if location := response.Header().Get("Location"); !strings.HasPrefix(location, "/?") {
 		t.Fatalf("Location = %q", location)
 	}
 }
@@ -202,21 +397,60 @@ func TestSafeReturnToRejectsExternalURL(t *testing.T) {
 	}
 }
 
-func TestUpNextRendersQueuePositionAndActions(t *testing.T) {
-	position := 1
-	server := newTestServer(t, &fakeRepository{queued: []podcast.Episode{{
-		ID: 8, Title: "Queued episode", FeedTitle: "Example podcast",
-		State: podcast.EpisodeStateQueued, QueuePosition: &position,
-	}}})
+func TestLegacyUpNextRedirectsToHomepageQueue(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
 	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/up-next", nil)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/#up-next" {
+		t.Fatalf("status = %d, location = %q", response.Code, response.Header().Get("Location"))
 	}
-	for _, expected := range []string{"Queued episode", "Example podcast", "Move Queued episode up", ">1</span>"} {
-		if !strings.Contains(response.Body.String(), expected) {
-			t.Fatalf("queue page missing %q: %s", expected, response.Body.String())
+}
+
+func TestReorderQueueEndpoint(t *testing.T) {
+	repository := &fakeRepository{}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/queue/reorder", strings.NewReader(`{"episodeId":42,"targetPosition":3}`))
+	request.Header.Set("Origin", "http://castdock.test")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || repository.reorderID != 42 || repository.reorderTarget != 3 {
+		t.Fatalf("status = %d, reorder = %d/%d, body = %s", response.Code, repository.reorderID, repository.reorderTarget, response.Body.String())
+	}
+}
+
+func TestSwaggerUIAndOpenAPIDocumentAreServed(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	specRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/api/openapi.yaml", nil)
+	specResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(specResponse, specRequest)
+	if specResponse.Code != http.StatusOK || !strings.Contains(specResponse.Body.String(), "openapi: 3.0.3") {
+		t.Fatalf("OpenAPI response: status=%d body=%s", specResponse.Code, specResponse.Body.String())
+	}
+	uiRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/swagger/index.html", nil)
+	uiResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(uiResponse, uiRequest)
+	if uiResponse.Code != http.StatusOK || !strings.Contains(uiResponse.Body.String(), "openapi.yaml") {
+		t.Fatalf("Swagger UI response: status=%d body=%s", uiResponse.Code, uiResponse.Body.String())
+	}
+	if !strings.Contains(uiResponse.Header().Get("Content-Security-Policy"), "'unsafe-inline'") {
+		t.Fatalf("Swagger UI CSP = %q", uiResponse.Header().Get("Content-Security-Policy"))
+	}
+}
+
+func TestQueueScriptReloadsAfterPersistedReorder(t *testing.T) {
+	script, err := webassets.Files.ReadFile("static/queue.js")
+	if err != nil {
+		t.Fatalf("read queue script: %v", err)
+	}
+	contents := string(script)
+	for _, expected := range []string{`window.location.reload()`, `window.sessionStorage.setItem(scrollKey, "true")`, `queue.scrollIntoView`} {
+		if !strings.Contains(contents, expected) {
+			t.Fatalf("queue script missing %q", expected)
 		}
+	}
+	if strings.Contains(contents, `window.location.assign("/#up-next")`) {
+		t.Fatal("queue script still uses hash-only navigation after reorder")
 	}
 }

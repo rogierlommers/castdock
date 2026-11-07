@@ -1,0 +1,47 @@
+{{define "library"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">Subscriptions</p><h1>Library</h1><p>Add podcasts and manage feed refreshes.</p></div>
+  {{if .Feeds}}<form method="post" action="/refresh"><button class="secondary" type="submit">Refresh all</button></form>{{end}}
+</section>
+<form class="subscribe-form library-subscribe" method="post" action="/feeds">
+  <label for="feed-url">Podcast feed URL</label>
+  <div class="form-row">
+    <input id="feed-url" name="url" type="url" placeholder="https://example.com/feed.xml" required>
+    <button type="submit">Subscribe</button>
+  </div>
+</form>
+<section class="opml-tools" id="opml" aria-labelledby="opml-heading">
+  <div>
+    <p class="eyebrow">Move subscriptions</p>
+    <h2 id="opml-heading">Import or export OPML</h2>
+    <p>Bring subscriptions from another podcast app or download a portable backup of this library.</p>
+  </div>
+  <form class="opml-import" method="post" action="/library/import" enctype="multipart/form-data">
+    <label for="opml-file">OPML file</label>
+    <input id="opml-file" name="opml" type="file" accept=".opml,.xml,text/x-opml,application/xml,text/xml" required>
+    <button type="submit">Import OPML</button>
+  </form>
+  <a class="button secondary" href="/library/export.opml" download>Export OPML</a>
+</section>
+{{if .Feeds}}
+<div class="feed-grid library-grid">
+  {{range .Feeds}}
+  <a class="feed-card" href="/feeds/{{.ID}}">
+    {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
+    <div>
+      <h2>{{if .Title}}{{.Title}}{{else}}{{.URL}}{{end}}</h2>
+      <p>{{.EpisodeCount}} episodes</p>
+      <dl class="feed-dates">
+        <div><dt>Last scan</dt><dd>{{datetime .LastChecked}}</dd></div>
+        <div><dt>Latest episode</dt><dd>{{date .LastEpisodePublished}}{{if not .LastEpisodePublished}}Unknown{{end}}</dd></div>
+      </dl>
+    </div>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><h2>No subscriptions yet</h2><p>Add one feed above or <a href="/import">import an OPML file</a>.</p></div>
+{{end}}
+{{template "footer" .}}
+{{end}}

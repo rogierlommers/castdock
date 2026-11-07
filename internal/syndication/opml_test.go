@@ -3,6 +3,8 @@ package syndication
 import (
 	"strings"
 	"testing"
+
+	"github.com/rlommers/castdock/internal/podcast"
 )
 
 func TestParseOPMLNestedAndDeduplicated(t *testing.T) {
@@ -26,5 +28,26 @@ func TestParseOPMLRejectsDocumentWithoutFeeds(t *testing.T) {
 	_, err := ParseOPML(strings.NewReader(`<opml><body><outline text="Empty"/></body></opml>`))
 	if err == nil {
 		t.Fatal("ParseOPML() expected error")
+	}
+}
+
+func TestExportOPMLRoundTrip(t *testing.T) {
+	feeds := []podcast.Feed{
+		{Title: "One & Only", URL: "https://example.com/one.xml?x=1&y=2", SiteURL: "https://example.com/one"},
+		{URL: "https://example.com/two.xml"},
+	}
+	contents, err := ExportOPML(feeds)
+	if err != nil {
+		t.Fatalf("ExportOPML() error = %v", err)
+	}
+	if !strings.Contains(string(contents), `title="One &amp; Only"`) || !strings.Contains(string(contents), `<title>CastDock subscriptions</title>`) {
+		t.Fatalf("ExportOPML() = %s", contents)
+	}
+	urls, err := ParseOPML(strings.NewReader(string(contents)))
+	if err != nil {
+		t.Fatalf("ParseOPML(export) error = %v", err)
+	}
+	if len(urls) != 2 || urls[0] != feeds[0].URL || urls[1] != feeds[1].URL {
+		t.Fatalf("round-trip URLs = %#v", urls)
 	}
 }
