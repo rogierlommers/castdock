@@ -8,8 +8,7 @@
   const episodeID = Number(player.dataset.episodeId);
   const savedPosition = Number(player.dataset.position || 0);
   let restored = false;
-  let saving = false;
-  let queued = false;
+  let saveChain = Promise.resolve({});
 
   const payload = () => ({
     position: Number.isFinite(player.currentTime) ? player.currentTime : 0,
@@ -19,32 +18,29 @@
     clientUpdatedAt: new Date().toISOString(),
   });
 
-  async function save() {
-    if (saving) {
-      queued = true;
-      return;
-    }
-    saving = true;
+  async function send(state) {
     status.textContent = "Saving playback position…";
     try {
       const response = await fetch(`/api/episodes/${episodeID}/playback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
+        body: JSON.stringify(state),
         keepalive: true,
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       status.textContent = "Playback position saved.";
+      return await response.json();
     } catch (error) {
       console.error("Unable to save playback position", error);
       status.textContent = "Playback position could not be saved; CastDock will retry.";
-    } finally {
-      saving = false;
-      if (queued) {
-        queued = false;
-        void save();
-      }
+      return {};
     }
+  }
+
+  function save() {
+    const state = payload();
+    saveChain = saveChain.then(() => send(state));
+    return saveChain;
   }
 
   function beacon() {
@@ -58,9 +54,13 @@
     }
     restored = true;
   });
-  for (const event of ["play", "pause", "seeked", "ended"]) {
+  for (const event of ["play", "pause", "seeked"]) {
     player.addEventListener(event, () => void save());
   }
+  player.addEventListener("ended", async () => {
+    const result = await save();
+    if (result.nextEpisodeUrl) window.location.assign(result.nextEpisodeUrl);
+  });
   window.setInterval(() => {
     if (!player.paused && !player.ended) void save();
   }, 5000);

@@ -1,0 +1,30 @@
+{{define "archive"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">Processed episodes</p><h1>Archive</h1><p>Browse history and bring anything back into Up Next.</p></div>
+</section>
+<form class="search-form" method="get" action="/archive">
+  <label for="archive-search">Search archived episodes</label>
+  <div class="form-row"><input id="archive-search" name="q" type="search" value="{{.Search}}" placeholder="Episode or podcast title"><button type="submit">Search</button></div>
+</form>
+{{if .Episodes}}
+<div class="episode-list">
+  {{range .Episodes}}
+  <article class="episode-row episode-row-actions">
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}} {{if .Completed}}· Played{{end}}</p></a>
+    <div class="episode-actions"><form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button type="submit">Add to Up Next</button></form></div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><h2>No archived episodes found</h2><p>{{if .Search}}Try another search.{{else}}Processed and historical episodes will appear here.{{end}}</p></div>
+{{end}}
+{{if or .HasPrevious .HasNext}}
+<nav class="pagination" aria-label="Archive pages">
+  {{if .HasPrevious}}<a class="button secondary" href="/archive?q={{queryEscape .Search}}&amp;page={{.PreviousPage}}">← Newer</a>{{end}}
+  <span>Page {{.Page}}</span>
+  {{if .HasNext}}<a class="button secondary" href="/archive?q={{queryEscape .Search}}&amp;page={{.NextPage}}">Older →</a>{{end}}
+</nav>
+{{end}}
+{{template "footer" .}}
+{{end}}

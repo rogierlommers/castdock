@@ -9,7 +9,7 @@ func TestLoadDefaults(t *testing.T) {
 	for _, name := range []string{
 		"CASTDOCK_LISTEN_ADDR", "CASTDOCK_DATABASE_PATH", "CASTDOCK_REFRESH_INTERVAL",
 		"CASTDOCK_HTTP_TIMEOUT", "CASTDOCK_MAX_FEED_BYTES", "CASTDOCK_MAX_OPML_BYTES",
-		"CASTDOCK_MAX_OPML_FEEDS", "CASTDOCK_REFRESH_CONCURRENCY", "CASTDOCK_ALLOW_PRIVATE_FEEDS", "CASTDOCK_LOG_LEVEL",
+		"CASTDOCK_MAX_OPML_FEEDS", "CASTDOCK_REFRESH_CONCURRENCY", "CASTDOCK_ALLOW_PRIVATE_FEEDS", "CASTDOCK_ACCESS_LOG_ENABLED", "CASTDOCK_LOG_LEVEL",
 	} {
 		t.Setenv(name, "")
 	}
@@ -24,6 +24,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("CASTDOCK_MAX_OPML_FEEDS", "500")
 	t.Setenv("CASTDOCK_REFRESH_CONCURRENCY", "4")
 	t.Setenv("CASTDOCK_ALLOW_PRIVATE_FEEDS", "false")
+	t.Setenv("CASTDOCK_ACCESS_LOG_ENABLED", "false")
 	t.Setenv("CASTDOCK_LOG_LEVEL", "info")
 
 	cfg, err := Load()
@@ -39,6 +40,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	t.Setenv("CASTDOCK_HTTP_TIMEOUT", "0")
 	t.Setenv("CASTDOCK_MAX_FEED_BYTES", "-1")
 	t.Setenv("CASTDOCK_LOG_LEVEL", "verbose")
+	t.Setenv("CASTDOCK_ACCESS_LOG_ENABLED", "sometimes")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected validation error")
 	}

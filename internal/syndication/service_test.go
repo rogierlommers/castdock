@@ -15,8 +15,9 @@ import (
 )
 
 type serviceRepository struct {
-	feed  podcast.Feed
-	saved podcast.ParsedFeed
+	feed    podcast.Feed
+	saved   podcast.ParsedFeed
+	initial bool
 }
 
 func (r *serviceRepository) AddFeed(context.Context, string) (podcast.Feed, bool, error) {
@@ -28,8 +29,9 @@ func (r *serviceRepository) Feed(context.Context, int64) (podcast.Feed, error) {
 func (r *serviceRepository) ListFeeds(context.Context) ([]podcast.Feed, error) {
 	return []podcast.Feed{r.feed}, nil
 }
-func (r *serviceRepository) SaveParsedFeed(_ context.Context, _ int64, feed podcast.ParsedFeed) error {
+func (r *serviceRepository) SaveParsedFeed(_ context.Context, _ int64, feed podcast.ParsedFeed, initial bool) error {
 	r.saved = feed
+	r.initial = initial
 	return nil
 }
 func (r *serviceRepository) MarkFeedError(context.Context, int64, error) error { return nil }
@@ -55,6 +57,9 @@ func TestRefreshLogsStartAndCompletion(t *testing.T) {
 	}
 	if repository.saved.Title != "Logged podcast" || len(repository.saved.Episodes) != 1 {
 		t.Fatalf("saved feed = %+v", repository.saved)
+	}
+	if !repository.initial {
+		t.Fatal("first successful refresh was not marked initial")
 	}
 	for _, expected := range []string{
 		`"msg":"feed refresh started"`,

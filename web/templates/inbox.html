@@ -1,0 +1,29 @@
+{{define "inbox"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">New releases</p><h1>Inbox</h1><p>Decide what to hear next and archive the rest.</p></div>
+</section>
+{{if .Episodes}}
+<div class="episode-list">
+  {{range .Episodes}}
+  <article class="episode-row episode-row-actions">
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <div class="episode-actions">
+      <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button type="submit">Add to Up Next</button></form>
+      <form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Archive</button></form>
+    </div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><h2>Inbox zero</h2><p>New episodes discovered during future feed refreshes will appear here.</p></div>
+{{end}}
+{{if or .HasPrevious .HasNext}}
+<nav class="pagination" aria-label="Inbox pages">
+  {{if .HasPrevious}}<a class="button secondary" href="/inbox?page={{.PreviousPage}}">← Newer</a>{{end}}
+  <span>Page {{.Page}}</span>
+  {{if .HasNext}}<a class="button secondary" href="/inbox?page={{.NextPage}}">Older →</a>{{end}}
+</nav>
+{{end}}
+{{template "footer" .}}
+{{end}}

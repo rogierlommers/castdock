@@ -4,6 +4,8 @@ CastDock is a self-hosted, single-user podcast library and web player. The Go se
 
 Audio streams directly from each podcast publisher. CastDock stores metadata and playback state, not media files.
 
+New episodes discovered after a podcast's first refresh arrive in **Inbox**. From there they can be archived or appended to the ordered **Up Next** queue. Existing feed history starts in the searchable **Archive**, and completing a queued episode archives it before advancing to the next item.
+
 > [!WARNING]
 > CastDock does not yet include authentication. Keep it on a trusted private network; the supplied Docker Compose configuration publishes only to loopback by default.
 
@@ -58,10 +60,13 @@ go test ./internal/syndication -run '^TestParseOPMLNestedAndDeduplicated$'
 | `CASTDOCK_MAX_OPML_FEEDS` | `500` | Maximum subscriptions accepted from one OPML file |
 | `CASTDOCK_ALLOW_PRIVATE_FEEDS` | `false` | Allow feed URLs resolving to private addresses |
 | `CASTDOCK_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
+| `CASTDOCK_ACCESS_LOG_ENABLED` | `false` | Emit one access log for each HTTP request |
 
 Every runtime setting is read from the environment and validated during startup. There are no application config files or runtime CLI flags.
 
-Logs are written to stdout as human-readable `key=value` text. Set `CASTDOCK_LOG_LEVEL=debug` to log request timing, playback-position saves, and feed-refresh start/completion details. Logs intentionally identify feeds by database ID and title rather than URL because private feed URLs may contain subscription tokens.
+Logs are written to stdout as human-readable `key=value` text. Set `CASTDOCK_LOG_LEVEL=debug` for playback-position saves and feed-refresh start/completion details. Set `CASTDOCK_ACCESS_LOG_ENABLED=true` independently to emit request method, path, status, response size, and duration at `info`. Logs intentionally identify feeds by database ID and title rather than URL because private feed URLs may contain subscription tokens.
+
+At startup, CastDock logs the database migration check, every migration applied during that run, its duration, and a completion summary containing the current schema version and applied count. With debug logging enabled, already-applied migration files are listed as skipped.
 
 ## Repository layout
 

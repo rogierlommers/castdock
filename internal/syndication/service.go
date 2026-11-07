@@ -14,7 +14,7 @@ type Repository interface {
 	AddFeed(context.Context, string) (podcast.Feed, bool, error)
 	Feed(context.Context, int64) (podcast.Feed, error)
 	ListFeeds(context.Context) ([]podcast.Feed, error)
-	SaveParsedFeed(context.Context, int64, podcast.ParsedFeed) error
+	SaveParsedFeed(context.Context, int64, podcast.ParsedFeed, bool) error
 	MarkFeedError(context.Context, int64, error) error
 	MarkFeedNotModified(context.Context, int64, string, string) error
 }
@@ -78,7 +78,7 @@ func (s *Service) Refresh(ctx context.Context, feedID int64) error {
 		s.logger.Debug("feed refresh complete", "feed_id", feedID, "feed_title", feed.Title, "not_modified", true, "duration", time.Since(started))
 		return nil
 	}
-	if err := s.repository.SaveParsedFeed(ctx, feedID, result.Feed); err != nil {
+	if err := s.repository.SaveParsedFeed(ctx, feedID, result.Feed, feed.LastSuccess == nil); err != nil {
 		s.logger.Warn("feed refresh failed", "feed_id", feedID, "feed_title", feed.Title, "duration", time.Since(started), "error", err)
 		return err
 	}

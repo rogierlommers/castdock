@@ -2,6 +2,14 @@ package podcast
 
 import "time"
 
+type EpisodeState string
+
+const (
+	EpisodeStateInbox    EpisodeState = "inbox"
+	EpisodeStateQueued   EpisodeState = "queued"
+	EpisodeStateArchived EpisodeState = "archived"
+)
+
 type Feed struct {
 	ID           int64
 	URL          string
@@ -22,6 +30,7 @@ type Feed struct {
 type Episode struct {
 	ID              int64
 	FeedID          int64
+	FeedTitle       string
 	GUID            string
 	Title           string
 	Description     string
@@ -35,6 +44,8 @@ type Episode struct {
 	Completed       bool
 	Playing         bool
 	PlaybackUpdated *time.Time
+	State           EpisodeState
+	QueuePosition   *int
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

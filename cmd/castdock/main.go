@@ -34,7 +34,7 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	store, err := storage.Open(ctx, cfg.DatabasePath)
+	store, err := storage.Open(ctx, cfg.DatabasePath, logger)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func run() error {
 
 	fetcher := syndication.NewFetcher(cfg.HTTPTimeout, cfg.MaxFeedBytes, cfg.AllowPrivateFeeds)
 	feedService := syndication.NewService(store, fetcher, logger, cfg.RefreshConcurrency)
-	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds)
+	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds, cfg.AccessLogEnabled)
 	if err != nil {
 		return err
 	}

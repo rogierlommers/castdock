@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,10 +24,14 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *slog.Logger
 }
 
-func Open(ctx context.Context, path string) (*Store, error) {
+func Open(ctx context.Context, path string, logger *slog.Logger) (*Store, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
@@ -46,7 +51,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxLifetime(0)
 
-	store := &Store{db: db}
+	store := &Store{db: db, logger: logger}
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
@@ -55,6 +60,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	logger.Info("database ready", "path", path)
 	return store, nil
 }
 
@@ -63,6 +69,7 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Health(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 func (s *Store) migrate(ctx context.Context) error {
+	s.logger.Info("database migration check started")
 	if _, err := s.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
@@ -76,6 +83,8 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("list migrations: %w", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	appliedThisRun := 0
+	currentVersion := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
@@ -88,12 +97,14 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("migration %q has invalid version: %w", entry.Name(), err)
 		}
+		currentVersion = max(currentVersion, version)
 		var applied int
 		err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&applied)
 		if err != nil {
 			return fmt.Errorf("check migration %d: %w", version, err)
 		}
 		if applied != 0 {
+			s.logger.Debug("database migration already applied", "version", version, "file", entry.Name())
 			continue
 		}
 		contents, err := fs.ReadFile(migrations.Files, entry.Name())
@@ -104,6 +115,8 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", version, err)
 		}
+		started := time.Now()
+		s.logger.Info("applying database migration", "version", version, "file", entry.Name())
 		if _, err = tx.ExecContext(ctx, string(contents)); err == nil {
 			_, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", version, formatTime(time.Now()))
 		}
@@ -114,7 +127,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration %d: %w", version, err)
 		}
+		appliedThisRun++
+		s.logger.Info("database migration applied", "version", version, "file", entry.Name(), "duration", time.Since(started))
 	}
+	s.logger.Info("database migrations complete", "current_version", currentVersion, "applied", appliedThisRun)
 	return nil
 }
 
@@ -189,13 +205,17 @@ func scanFeed(row scanner) (podcast.Feed, error) {
 	return feed, nil
 }
 
-func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast.ParsedFeed) error {
+func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast.ParsedFeed, initialRefresh bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin feed save: %w", err)
 	}
 	defer tx.Rollback()
 	now := formatTime(time.Now())
+	newEpisodeState := podcast.EpisodeStateInbox
+	if initialRefresh {
+		newEpisodeState = podcast.EpisodeStateArchived
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE feeds SET title = ?, description = ?, site_url = ?, image_url = ?, etag = ?,
 		last_modified = ?, last_checked = ?, last_success = ?, last_error = '', updated_at = ?
@@ -215,8 +235,8 @@ func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO episodes(
 				feed_id, guid, title, description, published_at, duration_seconds,
-				enclosure_url, enclosure_type, image_url, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				enclosure_url, enclosure_type, image_url, created_at, updated_at, state
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(feed_id, guid) DO UPDATE SET
 				title = excluded.title,
 				description = excluded.description,
@@ -228,7 +248,7 @@ func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast
 				updated_at = excluded.updated_at`,
 			feedID, episode.GUID, episode.Title, episode.Description, published,
 			episode.DurationSeconds, episode.EnclosureURL, episode.EnclosureType,
-			episode.ImageURL, now, now,
+			episode.ImageURL, now, now, newEpisodeState,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert episode %q: %w", episode.GUID, err)
@@ -285,6 +305,44 @@ func (s *Store) RecentEpisodes(ctx context.Context, limit int) ([]podcast.Episod
 	return scanEpisodes(rows)
 }
 
+func (s *Store) EpisodesByState(ctx context.Context, state podcast.EpisodeState, search string, limit, offset int) ([]podcast.Episode, error) {
+	search = strings.TrimSpace(search)
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		WHERE e.state = ? AND (
+			? = '' OR e.title LIKE '%' || ? || '%' OR e.description LIKE '%' || ? || '%'
+			OR f.title LIKE '%' || ? || '%'
+		)
+		ORDER BY e.published_at DESC, e.id DESC
+		LIMIT ? OFFSET ?`, state, search, search, search, search, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list %s episodes: %w", state, err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) QueuedEpisodes(ctx context.Context) ([]podcast.Episode, error) {
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		WHERE e.state = ?
+		ORDER BY e.queue_position`, podcast.EpisodeStateQueued)
+	if err != nil {
+		return nil, fmt.Errorf("list queued episodes: %w", err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) NextQueuedEpisode(ctx context.Context) (podcast.Episode, error) {
+	episode, err := scanEpisode(s.db.QueryRowContext(ctx, episodeSelect+`
+		WHERE e.state = ?
+		ORDER BY e.queue_position
+		LIMIT 1`, podcast.EpisodeStateQueued))
+	if errors.Is(err, sql.ErrNoRows) {
+		return podcast.Episode{}, ErrNotFound
+	}
+	return episode, err
+}
+
 func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) {
 	row := s.db.QueryRowContext(ctx, episodeSelect+" WHERE e.id = ?", id)
 	episode, err := scanEpisode(row)
@@ -295,12 +353,15 @@ func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) 
 }
 
 const episodeSelect = `
-	SELECT e.id, e.feed_id, e.guid, e.title, e.description, e.published_at,
+	SELECT e.id, e.feed_id, COALESCE(NULLIF(f.title, ''), f.url), e.guid, e.title, e.description, e.published_at,
 	       e.duration_seconds, e.enclosure_url, e.enclosure_type, e.image_url,
 	       e.created_at, e.updated_at,
 	       COALESCE(p.position_seconds, 0), COALESCE(p.duration_seconds, 0),
-	       COALESCE(p.completed, 0), COALESCE(p.playing, 0), p.updated_at
-	FROM episodes e LEFT JOIN playback p ON p.episode_id = e.id`
+	       COALESCE(p.completed, 0), COALESCE(p.playing, 0), p.updated_at,
+	       e.state, e.queue_position
+	FROM episodes e
+	JOIN feeds f ON f.id = e.feed_id
+	LEFT JOIN playback p ON p.episode_id = e.id`
 
 func scanEpisodes(rows *sql.Rows) ([]podcast.Episode, error) {
 	var episodes []podcast.Episode
@@ -317,30 +378,126 @@ func scanEpisodes(rows *sql.Rows) ([]podcast.Episode, error) {
 func scanEpisode(row scanner) (podcast.Episode, error) {
 	var episode podcast.Episode
 	var published, playbackUpdated sql.NullString
+	var queuePosition sql.NullInt64
 	var created, updated string
 	err := row.Scan(
-		&episode.ID, &episode.FeedID, &episode.GUID, &episode.Title, &episode.Description,
+		&episode.ID, &episode.FeedID, &episode.FeedTitle, &episode.GUID, &episode.Title, &episode.Description,
 		&published, &episode.DurationSeconds, &episode.EnclosureURL, &episode.EnclosureType,
 		&episode.ImageURL, &created, &updated, &episode.PositionSeconds, &episode.PlayedDuration,
-		&episode.Completed, &episode.Playing, &playbackUpdated,
+		&episode.Completed, &episode.Playing, &playbackUpdated, &episode.State, &queuePosition,
 	)
 	if err != nil {
 		return podcast.Episode{}, err
 	}
 	episode.PublishedAt = parseOptionalTime(published)
 	episode.PlaybackUpdated = parseOptionalTime(playbackUpdated)
+	if queuePosition.Valid {
+		position := int(queuePosition.Int64)
+		episode.QueuePosition = &position
+	}
 	episode.CreatedAt = parseTime(created)
 	episode.UpdatedAt = parseTime(updated)
 	return episode, nil
 }
 
-func (s *Store) SavePlayback(ctx context.Context, state playback.State) error {
-	if err := state.Validate(); err != nil {
-		return err
+func (s *Store) SetEpisodeState(ctx context.Context, episodeID int64, state podcast.EpisodeState) error {
+	if state != podcast.EpisodeStateInbox && state != podcast.EpisodeStateQueued && state != podcast.EpisodeStateArchived {
+		return fmt.Errorf("invalid episode state %q", state)
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin episode state change: %w", err)
+	}
+	defer tx.Rollback()
+	var currentState podcast.EpisodeState
+	var oldPosition sql.NullInt64
+	if err := tx.QueryRowContext(ctx, "SELECT state, queue_position FROM episodes WHERE id = ?", episodeID).Scan(&currentState, &oldPosition); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("read episode state: %w", err)
+	}
+	if currentState == state {
+		return tx.Commit()
+	}
+	if state == podcast.EpisodeStateQueued {
+		var nextPosition int
+		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(queue_position), 0) + 1 FROM episodes WHERE state = ?", podcast.EpisodeStateQueued).Scan(&nextPosition); err != nil {
+			return fmt.Errorf("choose queue position: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET state = ?, queue_position = ? WHERE id = ?", state, nextPosition, episodeID); err != nil {
+			return fmt.Errorf("queue episode: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE playback SET position_seconds = 0, completed = 0 WHERE episode_id = ? AND completed = 1", episodeID); err != nil {
+			return fmt.Errorf("reset completed playback: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET state = ?, queue_position = NULL WHERE id = ?", state, episodeID); err != nil {
+			return fmt.Errorf("change episode state: %w", err)
+		}
+	}
+	if oldPosition.Valid {
+		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", oldPosition.Int64); err != nil {
+			return fmt.Errorf("compact queue: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit episode state change: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) MoveQueuedEpisode(ctx context.Context, episodeID int64, direction int) error {
+	if direction != -1 && direction != 1 {
+		return fmt.Errorf("queue direction must be -1 or 1")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin queue move: %w", err)
+	}
+	defer tx.Rollback()
+	var currentPosition int
+	if err := tx.QueryRowContext(ctx, "SELECT queue_position FROM episodes WHERE id = ? AND state = ?", episodeID, podcast.EpisodeStateQueued).Scan(&currentPosition); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("read queue position: %w", err)
+	}
+	targetPosition := currentPosition + direction
+	var targetID int64
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM episodes WHERE state = ? AND queue_position = ?", podcast.EpisodeStateQueued, targetPosition).Scan(&targetID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return tx.Commit()
+		}
+		return fmt.Errorf("read target queue position: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = -1 WHERE id = ?", episodeID); err != nil {
+		return fmt.Errorf("reserve queue position: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = ? WHERE id = ?", currentPosition, targetID); err != nil {
+		return fmt.Errorf("move target queue episode: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = ? WHERE id = ?", targetPosition, episodeID); err != nil {
+		return fmt.Errorf("move queue episode: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit queue move: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SavePlayback(ctx context.Context, state playback.State) (bool, error) {
+	if err := state.Validate(); err != nil {
+		return false, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin playback save: %w", err)
+	}
+	defer tx.Rollback()
 	now := formatTime(time.Now())
 	clientTime := formatTime(state.ClientUpdatedAt)
-	result, err := s.db.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO playback(
 			episode_id, position_seconds, duration_seconds, completed, playing,
 			client_updated_at, updated_at
@@ -357,13 +514,32 @@ func (s *Store) SavePlayback(ctx context.Context, state playback.State) error {
 		clientTime, now,
 	)
 	if err != nil {
-		return fmt.Errorf("save playback: %w", err)
+		return false, fmt.Errorf("save playback: %w", err)
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		// A stale update is intentionally ignored and still considered successful.
-		return nil
+		return false, tx.Commit()
 	}
-	return nil
+	advancedQueue := false
+	if state.Completed {
+		var episodeState podcast.EpisodeState
+		var queuePosition sql.NullInt64
+		if err := tx.QueryRowContext(ctx, "SELECT state, queue_position FROM episodes WHERE id = ?", state.EpisodeID).Scan(&episodeState, &queuePosition); err != nil {
+			return false, fmt.Errorf("read completed episode state: %w", err)
+		}
+		advancedQueue = episodeState == podcast.EpisodeStateQueued
+		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET state = ?, queue_position = NULL WHERE id = ?", podcast.EpisodeStateArchived, state.EpisodeID); err != nil {
+			return false, fmt.Errorf("archive completed episode: %w", err)
+		}
+		if queuePosition.Valid {
+			if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", queuePosition.Int64); err != nil {
+				return false, fmt.Errorf("compact completed queue: %w", err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit playback save: %w", err)
+	}
+	return advancedQueue, nil
 }
 
 func formatTime(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }

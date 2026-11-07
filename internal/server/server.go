@@ -29,8 +29,13 @@ type Repository interface {
 	RecentEpisodes(context.Context, int) ([]podcast.Episode, error)
 	Feed(context.Context, int64) (podcast.Feed, error)
 	EpisodesForFeed(context.Context, int64, int, int) ([]podcast.Episode, error)
+	EpisodesByState(context.Context, podcast.EpisodeState, string, int, int) ([]podcast.Episode, error)
+	QueuedEpisodes(context.Context) ([]podcast.Episode, error)
+	NextQueuedEpisode(context.Context) (podcast.Episode, error)
 	Episode(context.Context, int64) (podcast.Episode, error)
-	SavePlayback(context.Context, playback.State) error
+	SetEpisodeState(context.Context, int64, podcast.EpisodeState) error
+	MoveQueuedEpisode(context.Context, int64, int) error
+	SavePlayback(context.Context, playback.State) (bool, error)
 }
 
 type Server struct {
@@ -39,6 +44,7 @@ type Server struct {
 	logger       *slog.Logger
 	maxOPMLBytes int64
 	maxOPMLFeeds int
+	accessLog    bool
 	templates    map[string]*template.Template
 	handler      http.Handler
 }
@@ -52,6 +58,8 @@ type pageData struct {
 	Episodes     []podcast.Episode
 	Episode      podcast.Episode
 	Result       *syndication.ImportResult
+	Search       string
+	ReturnTo     string
 	Page         int
 	PreviousPage int
 	NextPage     int
@@ -59,14 +67,14 @@ type pageData struct {
 	HasNext      bool
 }
 
-func New(repository Repository, service *syndication.Service, logger *slog.Logger, maxOPMLBytes int64, maxOPMLFeeds int) (*Server, error) {
+func New(repository Repository, service *syndication.Service, logger *slog.Logger, maxOPMLBytes int64, maxOPMLFeeds int, accessLog bool) (*Server, error) {
 	templates, err := parseTemplates()
 	if err != nil {
 		return nil, err
 	}
 	server := &Server{
 		repository: repository, syndication: service, logger: logger,
-		maxOPMLBytes: maxOPMLBytes, maxOPMLFeeds: maxOPMLFeeds, templates: templates,
+		maxOPMLBytes: maxOPMLBytes, maxOPMLFeeds: maxOPMLFeeds, accessLog: accessLog, templates: templates,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.index)
@@ -77,6 +85,14 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("GET /import", server.importPage)
 	mux.HandleFunc("POST /import", server.importOPML)
 	mux.HandleFunc("GET /episodes/{id}", server.episode)
+	mux.HandleFunc("POST /episodes/{id}/archive", server.archiveEpisode)
+	mux.HandleFunc("POST /episodes/{id}/queue", server.queueEpisode)
+	mux.HandleFunc("POST /episodes/{id}/queue/remove", server.removeQueuedEpisode)
+	mux.HandleFunc("POST /episodes/{id}/queue/move", server.moveQueuedEpisode)
+	mux.HandleFunc("GET /inbox", server.inbox)
+	mux.HandleFunc("GET /up-next", server.upNext)
+	mux.HandleFunc("GET /up-next/play", server.playNext)
+	mux.HandleFunc("GET /archive", server.archive)
 	mux.HandleFunc("POST /api/episodes/{id}/playback", server.savePlayback)
 	mux.HandleFunc("GET /healthz", server.health)
 	staticFS, err := fs.Sub(webassets.Files, "static")
@@ -105,9 +121,10 @@ func parseTemplates() (map[string]*template.Template, error) {
 			}
 			return fmt.Sprintf("%d:%02d", total/60, total%60)
 		},
+		"queryEscape": url.QueryEscape,
 	}
 	result := make(map[string]*template.Template)
-	for _, name := range []string{"index", "feed", "episode", "import"} {
+	for _, name := range []string{"index", "feed", "episode", "import", "inbox", "queue", "archive"} {
 		parsed, err := template.New(name).Funcs(functions).ParseFS(
 			webassets.Files, "templates/layout.html", "templates/"+name+".html",
 		)
@@ -122,25 +139,59 @@ func parseTemplates() (map[string]*template.Template, error) {
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: http: https:; media-src http: https:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if !sameOrigin(r) {
-				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
-				return
-			}
-		}
+		response := &responseMetrics{ResponseWriter: w, status: http.StatusOK}
+		response.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: http: https:; media-src http: https:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		response.Header().Set("Referrer-Policy", "no-referrer")
+		response.Header().Set("X-Content-Type-Options", "nosniff")
+		response.Header().Set("X-Frame-Options", "DENY")
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				s.logger.Error("request panic", "panic", recovered, "method", r.Method, "path", r.URL.Path)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
+				http.Error(response, "internal server error", http.StatusInternalServerError)
 			}
-			s.logger.Debug("request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(started))
+			if s.accessLog {
+				s.logger.Info("http request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", response.status,
+					"response_bytes", response.bytes,
+					"duration", time.Since(started),
+				)
+			}
 		}()
-		next.ServeHTTP(w, r)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if !sameOrigin(r) {
+				http.Error(response, "cross-origin request rejected", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(response, r)
 	})
+}
+
+type responseMetrics struct {
+	http.ResponseWriter
+	status      int
+	bytes       int
+	wroteHeader bool
+}
+
+func (w *responseMetrics) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *responseMetrics) Write(contents []byte) (int, error) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+	}
+	written, err := w.ResponseWriter.Write(contents)
+	w.bytes += written
+	return written, err
 }
 
 func sameOrigin(r *http.Request) bool {
@@ -231,7 +282,8 @@ func (s *Server) feed(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "feed", pageData{
 		Title: feed.Title, Feed: feed, Episodes: episodes,
-		Notice: r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
+		ReturnTo: r.URL.RequestURI(),
+		Notice:   r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
 		Page: page, PreviousPage: page - 1, NextPage: page + 1,
 		HasPrevious: page > 1, HasNext: page*pageSize < feed.EpisodeCount,
 	})
@@ -311,7 +363,130 @@ func (s *Server) episode(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	s.render(w, r, "episode", pageData{Title: episode.Title, Feed: feed, Episode: episode})
+	s.render(w, r, "episode", pageData{Title: episode.Title, Feed: feed, Episode: episode, ReturnTo: r.URL.RequestURI()})
+}
+
+const statePageSize = 100
+
+func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
+	s.renderStatePage(w, r, "inbox", "Inbox", podcast.EpisodeStateInbox, "")
+}
+
+func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
+	s.renderStatePage(w, r, "archive", "Archive", podcast.EpisodeStateArchived, strings.TrimSpace(r.URL.Query().Get("q")))
+}
+
+func (s *Server) renderStatePage(w http.ResponseWriter, r *http.Request, templateName, title string, state podcast.EpisodeState, search string) {
+	page, ok := queryPage(w, r)
+	if !ok {
+		return
+	}
+	episodes, err := s.repository.EpisodesByState(r.Context(), state, search, statePageSize+1, (page-1)*statePageSize)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	hasNext := len(episodes) > statePageSize
+	if hasNext {
+		episodes = episodes[:statePageSize]
+	}
+	s.render(w, r, templateName, pageData{
+		Title: title, Episodes: episodes, Search: search,
+		ReturnTo: r.URL.RequestURI(),
+		Notice:   r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
+		Page: page, PreviousPage: page - 1, NextPage: page + 1,
+		HasPrevious: page > 1, HasNext: hasNext,
+	})
+}
+
+func (s *Server) upNext(w http.ResponseWriter, r *http.Request) {
+	episodes, err := s.repository.QueuedEpisodes(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.render(w, r, "queue", pageData{
+		Title: "Up Next", Episodes: episodes,
+		ReturnTo: "/up-next",
+		Notice:   r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
+	})
+}
+
+func (s *Server) playNext(w http.ResponseWriter, r *http.Request) {
+	episode, err := s.repository.NextQueuedEpisode(r.Context())
+	if errors.Is(err, storage.ErrNotFound) {
+		http.Redirect(w, r, "/up-next?notice="+url.QueryEscape("Up Next is empty."), http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/episodes/%d", episode.ID), http.StatusSeeOther)
+}
+
+func (s *Server) archiveEpisode(w http.ResponseWriter, r *http.Request) {
+	s.changeEpisodeState(w, r, podcast.EpisodeStateArchived, "Episode archived.")
+}
+
+func (s *Server) queueEpisode(w http.ResponseWriter, r *http.Request) {
+	s.changeEpisodeState(w, r, podcast.EpisodeStateQueued, "Episode added to Up Next.")
+}
+
+func (s *Server) removeQueuedEpisode(w http.ResponseWriter, r *http.Request) {
+	s.changeEpisodeState(w, r, podcast.EpisodeStateArchived, "Episode removed from Up Next and archived.")
+}
+
+func (s *Server) changeEpisodeState(w http.ResponseWriter, r *http.Request, state podcast.EpisodeState, notice string) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if err := s.repository.SetEpisodeState(r.Context(), id, state); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	s.logger.Debug("episode state changed", "episode_id", id, "state", state)
+	redirectWithMessage(w, r, safeReturnTo(r.FormValue("return_to")), "notice", notice)
+}
+
+func (s *Server) moveQueuedEpisode(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	direction := 0
+	switch r.FormValue("direction") {
+	case "up":
+		direction = -1
+	case "down":
+		direction = 1
+	default:
+		http.Error(w, "invalid queue direction", http.StatusBadRequest)
+		return
+	}
+	if err := s.repository.MoveQueuedEpisode(r.Context(), id, direction); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	s.logger.Debug("queue order changed", "episode_id", id, "direction", r.FormValue("direction"))
+	redirectWithMessage(w, r, "/up-next", "notice", "Queue order updated.")
 }
 
 type playbackRequest struct {
@@ -347,7 +522,8 @@ func (s *Server) savePlayback(w http.ResponseWriter, r *http.Request) {
 		EpisodeID: id, Position: request.Position, Duration: request.Duration,
 		Completed: request.Completed, Playing: request.Playing, ClientUpdatedAt: request.ClientUpdatedAt,
 	}
-	if err := s.repository.SavePlayback(r.Context(), state); err != nil {
+	advanceQueue, err := s.repository.SavePlayback(r.Context(), state)
+	if err != nil {
 		if errors.Is(err, playback.ErrInvalidEpisode) || errors.Is(err, playback.ErrInvalidPosition) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -363,7 +539,24 @@ func (s *Server) savePlayback(w http.ResponseWriter, r *http.Request) {
 		"playing", request.Playing,
 		"client_updated_at", request.ClientUpdatedAt,
 	)
-	w.WriteHeader(http.StatusNoContent)
+	response := struct {
+		NextEpisodeURL string `json:"nextEpisodeUrl,omitempty"`
+	}{}
+	if advanceQueue {
+		next, err := s.repository.NextQueuedEpisode(r.Context())
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			s.internalError(w, r, err)
+			return
+		}
+		if err == nil {
+			response.NextEpisodeURL = fmt.Sprintf("/episodes/%d", next.ID)
+			s.logger.Debug("advancing queue", "completed_episode_id", id, "next_episode_id", next.ID)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("write playback response", "error", err)
+	}
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -404,6 +597,42 @@ func (s *Server) redirectHome(w http.ResponseWriter, r *http.Request, notice, me
 		location += "?" + encoded
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+func queryPage(w http.ResponseWriter, r *http.Request) (int, bool) {
+	page := 1
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			http.Error(w, "invalid page", http.StatusBadRequest)
+			return 0, false
+		}
+		page = parsed
+	}
+	return page, true
+}
+
+func safeReturnTo(value string) string {
+	if value == "" {
+		return "/"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
+		return "/"
+	}
+	return parsed.RequestURI()
+}
+
+func redirectWithMessage(w http.ResponseWriter, r *http.Request, location, key, message string) {
+	parsed, err := url.Parse(location)
+	if err != nil {
+		location = "/"
+		parsed, _ = url.Parse(location)
+	}
+	query := parsed.Query()
+	query.Set(key, message)
+	parsed.RawQuery = query.Encode()
+	http.Redirect(w, r, parsed.String(), http.StatusSeeOther)
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {

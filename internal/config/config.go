@@ -29,6 +29,7 @@ type Config struct {
 	MaxOPMLFeeds       int
 	RefreshConcurrency int
 	AllowPrivateFeeds  bool
+	AccessLogEnabled   bool
 	LogLevel           slog.Level
 }
 
@@ -80,6 +81,14 @@ func Load() (Config, error) {
 			errs = append(errs, fmt.Errorf("CASTDOCK_ALLOW_PRIVATE_FEEDS: %w", err))
 		} else {
 			cfg.AllowPrivateFeeds = value
+		}
+	}
+	if raw, ok := os.LookupEnv("CASTDOCK_ACCESS_LOG_ENABLED"); ok {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("CASTDOCK_ACCESS_LOG_ENABLED: %w", err))
+		} else {
+			cfg.AccessLogEnabled = value
 		}
 	}
 

@@ -18,10 +18,17 @@
 {{if .Episodes}}
 <div class="episode-list">
   {{range .Episodes}}
-  <a class="episode-row" href="/episodes/{{.ID}}">
-    <div><h3>{{.Title}}</h3><p>{{date .PublishedAt}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· Resume at {{duration .PositionSeconds}}{{end}}</p></div>
-    <span aria-hidden="true">Play →</span>
-  </a>
+  <article class="episode-row episode-row-actions">
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{date .PublishedAt}} · {{.State}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· Resume at {{duration .PositionSeconds}}{{end}}</p></a>
+    <div class="episode-actions">
+      {{if eq .State "queued"}}
+      <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Remove from Up Next</button></form>
+      {{else}}
+      <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button type="submit">Add to Up Next</button></form>
+      {{if eq .State "inbox"}}<form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Archive</button></form>{{end}}
+      {{end}}
+    </div>
+  </article>
   {{end}}
 </div>
 {{if or .HasPrevious .HasNext}}

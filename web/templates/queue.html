@@ -1,0 +1,25 @@
+{{define "queue"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">Listening order</p><h1>Up Next</h1><p>CastDock advances through this queue when an episode finishes.</p></div>
+  {{if .Episodes}}<a class="button" href="/up-next/play">Play next</a>{{end}}
+</section>
+{{if .Episodes}}
+<ol class="queue-list">
+  {{range .Episodes}}
+  <li class="queue-item">
+    <span class="queue-position">{{.QueuePosition}}</span>
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <div class="queue-actions">
+      <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="up"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} up">↑</button></form>
+      <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="down"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} down">↓</button></form>
+      <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="/up-next"><button class="secondary" type="submit">Remove</button></form>
+    </div>
+  </li>
+  {{end}}
+</ol>
+{{else}}
+<div class="empty-state"><h2>Nothing queued</h2><p>Add an episode from the <a href="/inbox">Inbox</a> or <a href="/archive">Archive</a>.</p></div>
+{{end}}
+{{template "footer" .}}
+{{end}}

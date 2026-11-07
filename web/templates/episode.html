@@ -9,6 +9,15 @@
     <p class="eyebrow">Now playing</p>
     <h1>{{.Episode.Title}}</h1>
     {{if .Episode.PublishedAt}}<p>{{date .Episode.PublishedAt}}</p>{{end}}
+    <p class="state-badge">{{.Episode.State}}</p>
+    <div class="actions">
+      {{if eq .Episode.State "queued"}}
+      <form method="post" action="/episodes/{{.Episode.ID}}/queue/remove"><input type="hidden" name="return_to" value="{{.ReturnTo}}"><button class="secondary" type="submit">Remove from Up Next</button></form>
+      {{else}}
+      <form method="post" action="/episodes/{{.Episode.ID}}/queue"><input type="hidden" name="return_to" value="{{.ReturnTo}}"><button type="submit">Add to Up Next</button></form>
+      {{if eq .Episode.State "inbox"}}<form method="post" action="/episodes/{{.Episode.ID}}/archive"><input type="hidden" name="return_to" value="{{.ReturnTo}}"><button class="secondary" type="submit">Archive</button></form>{{end}}
+      {{end}}
+    </div>
     {{if .Episode.EnclosureURL}}
     <audio id="player" controls preload="metadata" src="{{.Episode.EnclosureURL}}"
       data-episode-id="{{.Episode.ID}}" data-position="{{.Episode.PositionSeconds}}" data-completed="{{.Episode.Completed}}"></audio>

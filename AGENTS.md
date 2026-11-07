@@ -27,6 +27,7 @@
 - `ios/CastDock/` communicates through the service API. It must not depend on the SQLite schema or duplicate server-owned feed rules.
 - `migrations/` is the ordered history of persistent-schema changes. Never edit an applied migration; add a new one.
 - Runtime configuration is environment-only. Add new settings to `internal/config`, `.env.example`, `README.md`, and Compose together; do not introduce runtime config files or CLI flags.
+- Access logs are opt-in through `CASTDOCK_ACCESS_LOG_ENABLED`; do not put per-request noise back under the general debug level. Migration progress and summaries are ordinary startup logs, with already-applied files visible at debug level.
 
 ## Safety and Operations
 
@@ -38,6 +39,8 @@
 ## Non-obvious Behavior
 
 - Playback updates are last-write-wins by client timestamp. The browser saves every five seconds while playing and on play, pause, seek, completion, and page hide; preserve out-of-order-write protection.
+- Episode lifecycle is server-owned: initial feed history and existing migrated rows are `archived`, episodes discovered on later refreshes are `inbox`, and user-selected episodes are `queued`. Feed upserts must preserve an existing episode's state.
+- Queue positions are unique and contiguous. Append, reorder, removal, and completed-playback transitions must remain transactional; completing a queued episode archives it and advances the web player.
 - Audio comes directly from publisher enclosure URLs. Do not add proxying or downloads without revisiting storage, range requests, SSRF, and backup behavior.
 - Feed requests reject private, loopback, link-local, and carrier-grade NAT destinations by default, including after DNS resolution and redirects. `CASTDOCK_ALLOW_PRIVATE_FEEDS=true` is an explicit opt-out.
 - HTML descriptions are reduced to plain text during ingestion. Do not render publisher markup as trusted template HTML.
