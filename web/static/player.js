@@ -3,6 +3,8 @@
 
   const player = document.getElementById("player");
   const status = document.getElementById("sync-status");
+  const rewindButton = document.getElementById("rewind-15");
+  const forwardButton = document.getElementById("forward-15");
   if (!player) return;
 
   const episodeID = Number(player.dataset.episodeId);
@@ -48,12 +50,26 @@
     navigator.sendBeacon(`/api/episodes/${episodeID}/playback`, body);
   }
 
-  player.addEventListener("loadedmetadata", () => {
+  function handleLoadedMetadata() {
     if (!restored && savedPosition > 0 && savedPosition < player.duration - 1) {
       player.currentTime = savedPosition;
     }
     restored = true;
-  });
+    rewindButton.disabled = false;
+    forwardButton.disabled = false;
+  }
+
+  player.addEventListener("loadedmetadata", handleLoadedMetadata);
+  if (player.readyState >= 1) handleLoadedMetadata();
+
+  function seekBy(seconds) {
+    const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+    const upperBound = Number.isFinite(player.duration) ? player.duration : current + Math.max(seconds, 0);
+    player.currentTime = Math.max(0, Math.min(upperBound, current + seconds));
+  }
+
+  rewindButton.addEventListener("click", () => seekBy(-15));
+  forwardButton.addEventListener("click", () => seekBy(15));
   for (const event of ["play", "pause", "seeked"]) {
     player.addEventListener(event, () => void save());
   }

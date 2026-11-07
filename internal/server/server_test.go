@@ -222,7 +222,7 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 		feed: podcast.Feed{ID: 4, Title: "Example podcast"},
 		episode: podcast.Episode{
 			ID: 23, FeedID: 4, Title: "Formatted episode", State: podcast.EpisodeStateArchived,
-			DescriptionHTML: `<p>Start <strong>formatted</strong> end.</p>`,
+			DescriptionHTML: `<p>Start <strong>formatted</strong> end.</p>`, EnclosureURL: "https://example.com/episode.mp3",
 		},
 	})
 	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/episodes/23", nil)
@@ -231,9 +231,25 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	for _, expected := range []string{`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`} {
+	for _, expected := range []string{
+		`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`,
+		`id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `/static/player.js`,
+	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("episode page show-notes boundary missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestPlayerScriptSeeksFifteenSecondsWithBounds(t *testing.T) {
+	script, err := webassets.Files.ReadFile("static/player.js")
+	if err != nil {
+		t.Fatalf("read player script: %v", err)
+	}
+	contents := string(script)
+	for _, expected := range []string{"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound"} {
+		if !strings.Contains(contents, expected) {
+			t.Fatalf("player script missing %q", expected)
 		}
 	}
 }

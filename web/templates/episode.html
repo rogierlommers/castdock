@@ -21,6 +21,10 @@
     {{if .Episode.EnclosureURL}}
     <audio id="player" controls preload="metadata" src="{{.Episode.EnclosureURL}}"
       data-episode-id="{{.Episode.ID}}" data-position="{{.Episode.PositionSeconds}}" data-completed="{{.Episode.Completed}}"></audio>
+    <div class="playback-controls" aria-label="Playback shortcuts">
+      <button class="secondary" id="rewind-15" type="button" disabled aria-label="Go back 15 seconds">↶ 15 seconds</button>
+      <button class="secondary" id="forward-15" type="button" disabled aria-label="Skip forward 15 seconds">15 seconds ↷</button>
+    </div>
     <p id="sync-status" class="sync-status" aria-live="polite">Playback position is saved to CastDock.</p>
     {{else}}<p class="inline-error">This episode does not provide a playable enclosure.</p>{{end}}
     {{if or .Episode.DescriptionHTML .Episode.Description}}

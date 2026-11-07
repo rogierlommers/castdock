@@ -102,6 +102,7 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .player-page { display: grid; grid-template-columns: minmax(15rem, 26rem) 1fr; gap: 3rem; align-items: start; }
 .player-page .back-link { grid-column: 1 / -1; }.player-art img { width: 100%; aspect-ratio: 1; border-radius: 1.2rem; object-fit: cover; box-shadow: var(--shadow); }
 .player-copy h1 { font-size: clamp(2.2rem, 5vw, 4rem); }.player-copy audio { width: 100%; margin-top: 1.4rem; }.sync-status { color: var(--muted); font-size: .9rem; }
+.playback-controls { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .75rem; }.playback-controls button:disabled { cursor: not-allowed; opacity: .5; }
 .description { margin-top: 2rem; white-space: pre-line; }.narrow { max-width: 42rem; margin: 3rem auto; }.narrow h1 { margin-bottom: 1.2rem; }
 .upload-form { display: grid; gap: .8rem; margin: 2rem 0; padding: 1.4rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
 .library-subscribe { max-width: 46rem; margin: 0 0 2rem; padding: 1.2rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
