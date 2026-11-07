@@ -16,7 +16,7 @@ New episodes discovered after a podcast's first refresh arrive in **Inbox**, sho
 
 **Play History** appears directly after Home and shows the 20 most recently played episodes with a human-friendly playback timestamp. The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, formatted show notes, played status, lifecycle state, and queue/archive actions. Publisher show-note HTML is sanitized during ingestion and again before rendering.
 
-The read-only **System** page shows runtime and build information, library and database statistics, and an explicit allow-list of effective configuration values. It never dumps the process environment, so future secret settings are not exposed automatically.
+The read-only **System** page shows runtime and build information, library and database statistics, the 50 most recent client network events for the current process, and an explicit allow-list of effective configuration values. Network events include only the client label, request method and path, response status, and server timestamp; they are cleared on restart. The page never dumps the process environment, so future secret settings are not exposed automatically.
 
 ## Native iOS client
 

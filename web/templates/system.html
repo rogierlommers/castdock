@@ -29,6 +29,22 @@
   </dl>
 </section>
 
+<section class="system-section" aria-labelledby="network-events-heading">
+  <div class="section-heading compact-heading"><div><p class="eyebrow">Current process</p><h2 id="network-events-heading">Last network events</h2><p>Most recent client requests, newest first. Events are cleared when CastDock restarts.</p></div></div>
+  {{if .NetworkEvents}}
+  <ol class="network-event-list">
+    {{range .NetworkEvents}}
+    <li>
+      <div class="network-event-summary"><strong>{{.Description}}</strong><span class="state-badge">{{.Client}}</span></div>
+      <p><time datetime="{{.OccurredAt.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.OccurredAt.Local.Format "2 Jan 2006, 15:04:05"}}">{{relativeTimeValue .OccurredAt}}</time> · <code>{{.Method}} {{.Path}}</code> · HTTP {{.Status}}</p>
+    </li>
+    {{end}}
+  </ol>
+  {{else}}
+  <p class="empty-state">No client network events recorded since startup.</p>
+  {{end}}
+</section>
+
 <section class="system-section" aria-labelledby="configuration-heading">
   <div class="section-heading compact-heading"><div><p class="eyebrow">Environment-derived</p><h2 id="configuration-heading">Effective configuration</h2></div><span class="read-only-badge">Read only</span></div>
   <dl class="configuration-list">

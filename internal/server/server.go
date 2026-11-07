@@ -81,6 +81,7 @@ type Server struct {
 	repository     Repository
 	syndication    *syndication.Service
 	logger         *slog.Logger
+	networkEvents  *networkEventStore
 	maxOPMLBytes   int64
 	maxOPMLFeeds   int
 	accessLog      bool
@@ -112,6 +113,7 @@ type pageData struct {
 	AppVersion     string
 	GoVersion      string
 	Uptime         string
+	NetworkEvents  []networkEvent
 	AuthEnabled    bool
 	LoginError     string
 	Next           string
@@ -132,7 +134,8 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	}
 	server := &Server{
 		repository: repository, syndication: service, logger: logger,
-		maxOPMLBytes: options.MaxOPMLBytes, maxOPMLFeeds: options.MaxOPMLFeeds, accessLog: options.AccessLog,
+		networkEvents: &networkEventStore{},
+		maxOPMLBytes:  options.MaxOPMLBytes, maxOPMLFeeds: options.MaxOPMLFeeds, accessLog: options.AccessLog,
 		systemConfig: systemConfig, authentication: authentication, templates: templates,
 	}
 	mux := http.NewServeMux()
@@ -225,6 +228,9 @@ func parseTemplates() (map[string]*template.Template, error) {
 		"relativeTime": func(value *time.Time) string {
 			return relativeTime(value, time.Now())
 		},
+		"relativeTimeValue": func(value time.Time) string {
+			return relativeTime(&value, time.Now())
+		},
 		"showNotesHTML": func(value string) template.HTML {
 			return template.HTML(contenthtml.SanitizeShowNotes(value))
 		},
@@ -271,6 +277,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 					"response_bytes", response.bytes,
 					"duration", time.Since(started),
 				)
+			}
+			if isClientNetworkRequest(r) {
+				s.networkEvents.record(networkEvent{
+					OccurredAt: time.Now(),
+					Client:     networkEventClient(r), Description: networkEventDescription(r.Method, r.URL.Path),
+					Method: r.Method, Path: r.URL.Path, Status: response.status,
+				})
 			}
 		}()
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
@@ -884,7 +897,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "system", pageData{
 		Title: "System", Statistics: statistics, SystemConfig: s.systemConfig,
 		AppVersion: applicationVersion(), GoVersion: runtime.Version(),
-		Uptime: formatUptime(time.Since(s.systemConfig.StartedAt)),
+		Uptime: formatUptime(time.Since(s.systemConfig.StartedAt)), NetworkEvents: s.networkEvents.recent(),
 	})
 }
 

@@ -128,6 +128,10 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .configuration-list { overflow: hidden; margin: 0; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); }
 .configuration-list div { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: 1rem; padding: .8rem 1rem; border-bottom: 1px solid var(--border); }
 .configuration-list div:last-child { border-bottom: 0; }.configuration-list dt { color: var(--muted); font-weight: 700; }.configuration-list dd { margin: 0; overflow-wrap: anywhere; }
+.network-event-list { overflow: hidden; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); list-style: none; }
+.network-event-list li { padding: .8rem 1rem; border-bottom: 1px solid var(--border); }.network-event-list li:last-child { border-bottom: 0; }
+.network-event-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }.network-event-summary .state-badge { margin: 0; }
+.network-event-list p { margin: .25rem 0 0; color: var(--muted); overflow-wrap: anywhere; }.network-event-list code { color: var(--text); }
 .site-footer { padding: 2rem; color: var(--muted); text-align: center; font-size: .85rem; }
 .site-footer a { color: inherit; font-weight: 700; }
 .login-page { display: grid; min-height: 100vh; place-items: center; padding: 1rem; }

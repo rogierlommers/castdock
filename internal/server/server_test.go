@@ -389,10 +389,57 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 	for _, expected := range []string{
 		"System", "Read only", "Subscriptions", "<dd>12</dd>", "Total episodes", "<dd>345</dd>",
 		"2.0 MiB", "0.0.0.0:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "Authentication enabled", "720h0m0s",
+		"Last network events", "No client network events recorded since startup.",
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("system page missing %q: %s", expected, response.Body.String())
 		}
+	}
+}
+
+func TestSystemPageRendersRecentClientNetworkEventsNewestFirst(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/healthz", nil)
+	healthRequest.Header.Set("X-CastDock-Client", "ios")
+	server.Handler().ServeHTTP(httptest.NewRecorder(), healthRequest)
+
+	body := `{"position":12.5,"duration":60,"completed":false,"playing":true,"clientUpdatedAt":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`
+	playbackRequest := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/episodes/42/playback", strings.NewReader(body))
+	playbackRequest.Header.Set("X-CastDock-Client", "ios")
+	server.Handler().ServeHTTP(httptest.NewRecorder(), playbackRequest)
+
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/system", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	bodyText := response.Body.String()
+	for _, expected := range []string{
+		"Playback timestamp saved", "POST /api/episodes/42/playback", "Health checked", "GET /healthz", "ios", "just now", "HTTP 200",
+	} {
+		if !strings.Contains(bodyText, expected) {
+			t.Fatalf("system page missing network event %q: %s", expected, bodyText)
+		}
+	}
+	if strings.Index(bodyText, "Playback timestamp saved") > strings.Index(bodyText, "Health checked") {
+		t.Fatalf("network events are not newest first: %s", bodyText)
+	}
+}
+
+func TestNetworkEventStoreRetainsLatestFiftyEvents(t *testing.T) {
+	store := &networkEventStore{}
+	for index := 0; index <= networkEventLimit; index++ {
+		store.record(networkEvent{Status: index})
+	}
+
+	events := store.recent()
+	if len(events) != networkEventLimit {
+		t.Fatalf("event count = %d, want %d", len(events), networkEventLimit)
+	}
+	if events[0].Status != networkEventLimit || events[len(events)-1].Status != 1 {
+		t.Fatalf("retained statuses run from %d to %d, want %d to 1", events[0].Status, events[len(events)-1].Status, networkEventLimit)
 	}
 }
 
