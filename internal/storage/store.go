@@ -519,7 +519,7 @@ func (s *Store) SetEpisodeState(ctx context.Context, episodeID int64, state podc
 		}
 	}
 	if oldPosition.Valid {
-		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", oldPosition.Int64); err != nil {
+		if err := compactQueueAfter(ctx, tx, oldPosition.Int64); err != nil {
 			return fmt.Errorf("compact queue: %w", err)
 		}
 	}
@@ -659,7 +659,7 @@ func (s *Store) SavePlayback(ctx context.Context, state playback.State) (bool, e
 			return false, fmt.Errorf("archive completed episode: %w", err)
 		}
 		if queuePosition.Valid {
-			if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", queuePosition.Int64); err != nil {
+			if err := compactQueueAfter(ctx, tx, queuePosition.Int64); err != nil {
 				return false, fmt.Errorf("compact completed queue: %w", err)
 			}
 		}
@@ -706,12 +706,22 @@ func (s *Store) MarkEpisodePlayed(ctx context.Context, episodeID int64) error {
 		return fmt.Errorf("archive played episode: %w", err)
 	}
 	if state == podcast.EpisodeStateQueued && queuePosition.Valid {
-		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", queuePosition.Int64); err != nil {
+		if err := compactQueueAfter(ctx, tx, queuePosition.Int64); err != nil {
 			return fmt.Errorf("compact played queue: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit mark episode played: %w", err)
+	}
+	return nil
+}
+
+func compactQueueAfter(ctx context.Context, tx *sql.Tx, position int64) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = -queue_position WHERE queue_position > ?", position); err != nil {
+		return fmt.Errorf("reserve queue positions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = -queue_position - 1 WHERE queue_position < ?", -position); err != nil {
+		return fmt.Errorf("restore queue positions: %w", err)
 	}
 	return nil
 }
