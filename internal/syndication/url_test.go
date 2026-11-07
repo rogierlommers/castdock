@@ -18,7 +18,7 @@ func TestNormalizeURL(t *testing.T) {
 }
 
 func TestSafeIP(t *testing.T) {
-	for _, value := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "100.64.0.1", "::1"} {
+	for _, value := range []string{"0.0.0.0", "127.0.0.1", "10.0.0.1", "169.254.1.1", "100.64.0.1", "::1"} {
 		if safeIP(net.ParseIP(value)) {
 			t.Errorf("safeIP(%q) = true", value)
 		}

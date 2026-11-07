@@ -28,10 +28,10 @@ The read-only **System** page shows runtime and build information, library and d
 If you want a quick check how it looks, use this:
 
 ```
-docker run --name castdock --user 1000:1000 --publish 8080:8080 rogierlommers/castdock:latest
+docker run --rm --name castdock --publish 8080:8080 rogierlommers/castdock:latest
 ```
 
-And open http://0.0.0.0:8080 to see the gui.
+And open http://localhost:8080 to see the GUI.
 
 ## Run with docker-compose
 
@@ -71,7 +71,7 @@ mkdir -p data
 ./run.sh
 ```
 
-Open <http://127.0.0.1:8080>. Runtime configuration is environment-variable-only; `.env` is a local shell convenience and is ignored by Git.
+Open <http://localhost:8080>. Runtime configuration is environment-variable-only; `.env` is a local shell convenience and is ignored by Git.
 
 ## Run with Docker Compose
 
@@ -84,7 +84,7 @@ See [`deploy/compose/README.md`](deploy/compose/README.md) for exposure, persist
 
 ## API documentation
 
-With CastDock running, open the self-hosted Swagger UI at <http://127.0.0.1:8080/swagger/index.html>. The embedded OpenAPI 3.0 document is available directly at <http://127.0.0.1:8080/api/openapi.yaml> and lives in [`api/openapi.yaml`](api/openapi.yaml).
+With CastDock running, open the self-hosted Swagger UI at <http://localhost:8080/swagger/index.html>. The embedded OpenAPI 3.0 document is available directly at <http://localhost:8080/api/openapi.yaml> and lives in [`api/openapi.yaml`](api/openapi.yaml).
 
 The contract currently covers health checks, playback synchronization, queue reordering, and OPML import/export. CastDock has no application-level authentication yet, so API writes must remain on a trusted network and are protected against cross-origin browser requests.
 
@@ -108,7 +108,7 @@ go test ./internal/syndication -run '^TestParseOPMLNestedAndDeduplicated$'
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CASTDOCK_LISTEN_ADDR` | `127.0.0.1:8080` | HTTP listen address |
+| `CASTDOCK_LISTEN_ADDR` | `0.0.0.0:8080` | HTTP listen address |
 | `CASTDOCK_DATABASE_PATH` | `./data/castdock.db` | SQLite database path |
 | `CASTDOCK_REFRESH_INTERVAL` | `1h` | Scheduled refresh cadence; `0` disables it |
 | `CASTDOCK_REFRESH_CONCURRENCY` | `4` | Concurrent feed refreshes, from 1 to 32 |

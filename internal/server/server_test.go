@@ -329,7 +329,7 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 	}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server, err := New(repository, nil, logger, 1024, 10, false, SystemConfiguration{
-		StartedAt: startedAt, ListenAddress: "127.0.0.1:8080", DatabasePath: "./data/castdock.db",
+		StartedAt: startedAt, ListenAddress: "0.0.0.0:8080", DatabasePath: "./data/castdock.db",
 		RefreshInterval: time.Hour, RefreshConcurrency: 4, HTTPTimeout: 20 * time.Second,
 		MaxFeedBytes: 32 << 20, MaxOPMLBytes: 5 << 20, MaxOPMLFeeds: 500,
 		LogLevel: "DEBUG", AccessLogEnabled: true,
@@ -345,7 +345,7 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"System", "Read only", "Subscriptions", "<dd>12</dd>", "Total episodes", "<dd>345</dd>",
-		"2.0 MiB", "127.0.0.1:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "true",
+		"2.0 MiB", "0.0.0.0:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "true",
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("system page missing %q: %s", expected, response.Body.String())

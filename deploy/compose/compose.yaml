@@ -18,7 +18,7 @@ services:
       CASTDOCK_LOG_LEVEL: ${CASTDOCK_LOG_LEVEL:-info}
       CASTDOCK_ACCESS_LOG_ENABLED: ${CASTDOCK_ACCESS_LOG_ENABLED:-false}
     ports:
-      - "127.0.0.1:${CASTDOCK_PORT:-8080}:8080"
+      - "0.0.0.0:${CASTDOCK_PORT:-8080}:8080"
     volumes:
       - ${CASTDOCK_DATA_DIR:-../../data}:/data
     healthcheck:

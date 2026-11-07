@@ -10,10 +10,10 @@ import (
 func TestNewLoggerWritesHumanReadableText(t *testing.T) {
 	var output bytes.Buffer
 	logger := newLogger(&output, slog.LevelDebug)
-	logger.Info("CastDock listening", "address", "127.0.0.1:8080")
+	logger.Info("CastDock listening", "address", "0.0.0.0:8080")
 
 	logLine := output.String()
-	for _, expected := range []string{`level=INFO`, `msg="CastDock listening"`, `address=127.0.0.1:8080`} {
+	for _, expected := range []string{`level=INFO`, `msg="CastDock listening"`, `address=0.0.0.0:8080`} {
 		if !strings.Contains(logLine, expected) {
 			t.Fatalf("log output missing %q: %s", expected, logLine)
 		}

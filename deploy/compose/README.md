@@ -7,7 +7,7 @@ cp .env.example .env
 docker compose --env-file .env -f deploy/compose/compose.yaml up --build
 ```
 
-The default published address is `http://127.0.0.1:8080`. It intentionally does not expose CastDock to the LAN because this release has no authentication. Change the Compose port binding only when a trusted reverse proxy or equivalent network control protects it.
+The service binds to all interfaces and is available locally at `http://localhost:8080`. The default Compose port publication also exposes CastDock to the LAN. This release has no authentication, so restrict the host binding to `127.0.0.1` or protect it with trusted network controls or an authenticated reverse proxy when the host is not private.
 
 Runtime data is bind-mounted from `./data` by default. Override the host path with `CASTDOCK_DATA_DIR`; the application database path inside the container remains controlled by `CASTDOCK_DATABASE_PATH`.
 
