@@ -1,6 +1,6 @@
 # CastDock
 
-[![Validate](https://github.com/rogierlommers/castdock/actions/workflows/validate.yml/badge.svg)](https://github.com/rogierlommers/castdock/actions/workflows/validate.yml)
+[![Test and publish container](https://github.com/rogierlommers/castdock/actions/workflows/ci-docker.yml/badge.svg?branch=main)](https://github.com/rogierlommers/castdock/actions/workflows/ci-docker.yml)
 
 CastDock is a self-hosted, single-user podcast library and web player. The Go service imports RSS/Atom feeds and OPML subscription lists, stores the library and playback state in SQLite, refreshes feeds on a schedule, and serves an HTML interface with frequent playback synchronization.
 
