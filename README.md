@@ -91,7 +91,7 @@ Configure these GitHub repository secrets before the first publishing run:
 - `DOCKERHUB_USERNAME` — Docker Hub account name with write access to `rlommers/castdock`
 - `DOCKERHUB_TOKEN` — Docker Hub access token; do not use an account password
 
-`main` publishes `latest` and a commit-SHA tag. Version tags such as `v1.2.3` additionally publish `1.2.3` and `1.2`. Dependabot checks Go modules, the Docker base image, and GitHub Actions weekly.
+`main` publishes `latest` and a commit-SHA tag. Version tags such as `v1.2.3` additionally publish `1.2.3` and `1.2`. Dependabot checks Go modules, the Docker base image, and GitHub Actions every Monday. Updates are grouped per ecosystem, producing at most one normal Go PR, one Docker PR, and one GitHub Actions PR per run instead of one PR per dependency.
 
 ## Repository layout
 
