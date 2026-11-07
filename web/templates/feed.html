@@ -1,0 +1,36 @@
+{{define "feed"}}
+{{template "header" .}}
+<section class="podcast-header">
+  {{if .Feed.ImageURL}}<img src="{{.Feed.ImageURL}}" alt="">{{else}}<div class="art-placeholder large" aria-hidden="true">◉</div>{{end}}
+  <div>
+    <p class="eyebrow">Podcast</p>
+    <h1>{{if .Feed.Title}}{{.Feed.Title}}{{else}}{{.Feed.URL}}{{end}}</h1>
+    {{if .Feed.Description}}<p>{{.Feed.Description}}</p>{{end}}
+    <div class="actions">
+      <form method="post" action="/feeds/{{.Feed.ID}}/refresh"><button type="submit">Refresh feed</button></form>
+      {{if .Feed.SiteURL}}<a class="button secondary" href="{{.Feed.SiteURL}}" rel="noreferrer">Publisher site</a>{{end}}
+    </div>
+    {{if .Feed.LastError}}<p class="inline-error">Last refresh failed: {{.Feed.LastError}}</p>{{end}}
+  </div>
+</section>
+
+<section class="section-heading"><div><p class="eyebrow">Episodes</p><h2>{{len .Episodes}} available</h2></div></section>
+{{if .Episodes}}
+<div class="episode-list">
+  {{range .Episodes}}
+  <a class="episode-row" href="/episodes/{{.ID}}">
+    <div><h3>{{.Title}}</h3><p>{{date .PublishedAt}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· Resume at {{duration .PositionSeconds}}{{end}}</p></div>
+    <span aria-hidden="true">Play →</span>
+  </a>
+  {{end}}
+</div>
+{{if or .HasPrevious .HasNext}}
+<nav class="pagination" aria-label="Episode pages">
+  {{if .HasPrevious}}<a class="button secondary" href="/feeds/{{.Feed.ID}}?page={{.PreviousPage}}">← Newer</a>{{end}}
+  <span>Page {{.Page}}</span>
+  {{if .HasNext}}<a class="button secondary" href="/feeds/{{.Feed.ID}}?page={{.NextPage}}">Older →</a>{{end}}
+</nav>
+{{end}}
+{{else}}<div class="empty-state"><h2>No episodes found</h2><p>Try refreshing this feed.</p></div>{{end}}
+{{template "footer" .}}
+{{end}}

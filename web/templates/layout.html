@@ -1,0 +1,30 @@
+{{define "header"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{if .Title}}{{.Title}} · {{end}}CastDock</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">CastDock</a>
+    <nav aria-label="Primary navigation">
+      <a href="/">Library</a>
+      <a href="/import">Import OPML</a>
+    </nav>
+  </header>
+  <main class="container">
+    {{if .Notice}}<div class="notice" role="status">{{.Notice}}</div>{{end}}
+    {{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+{{end}}
+
+{{define "footer"}}
+  </main>
+  <footer class="site-footer">CastDock is intended for a trusted private network.</footer>
+</body>
+</html>
+{{end}}

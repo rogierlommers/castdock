@@ -1,0 +1,22 @@
+{{define "episode"}}
+{{template "header" .}}
+<article class="player-page">
+  <a class="back-link" href="/feeds/{{.Feed.ID}}">← {{if .Feed.Title}}{{.Feed.Title}}{{else}}Podcast{{end}}</a>
+  <div class="player-art">
+    {{if .Episode.ImageURL}}<img src="{{.Episode.ImageURL}}" alt="">{{else if .Feed.ImageURL}}<img src="{{.Feed.ImageURL}}" alt="">{{else}}<div class="art-placeholder large" aria-hidden="true">◉</div>{{end}}
+  </div>
+  <div class="player-copy">
+    <p class="eyebrow">Now playing</p>
+    <h1>{{.Episode.Title}}</h1>
+    {{if .Episode.PublishedAt}}<p>{{date .Episode.PublishedAt}}</p>{{end}}
+    {{if .Episode.EnclosureURL}}
+    <audio id="player" controls preload="metadata" src="{{.Episode.EnclosureURL}}"
+      data-episode-id="{{.Episode.ID}}" data-position="{{.Episode.PositionSeconds}}" data-completed="{{.Episode.Completed}}"></audio>
+    <p id="sync-status" class="sync-status" aria-live="polite">Playback position is saved to CastDock.</p>
+    {{else}}<p class="inline-error">This episode does not provide a playable enclosure.</p>{{end}}
+    {{if .Episode.Description}}<p class="description">{{.Episode.Description}}</p>{{end}}
+  </div>
+</article>
+{{if .Episode.EnclosureURL}}<script src="/static/player.js" defer></script>{{end}}
+{{template "footer" .}}
+{{end}}

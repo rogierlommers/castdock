@@ -1,0 +1,28 @@
+services:
+  castdock:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Container paths differ from local-development defaults in .env.
+      CASTDOCK_LISTEN_ADDR: :8080
+      CASTDOCK_DATABASE_PATH: /data/castdock.db
+      CASTDOCK_REFRESH_INTERVAL: ${CASTDOCK_REFRESH_INTERVAL:-1h}
+      CASTDOCK_REFRESH_CONCURRENCY: ${CASTDOCK_REFRESH_CONCURRENCY:-4}
+      CASTDOCK_HTTP_TIMEOUT: ${CASTDOCK_HTTP_TIMEOUT:-20s}
+      CASTDOCK_MAX_FEED_BYTES: ${CASTDOCK_MAX_FEED_BYTES:-33554432}
+      CASTDOCK_MAX_OPML_BYTES: ${CASTDOCK_MAX_OPML_BYTES:-5242880}
+      CASTDOCK_MAX_OPML_FEEDS: ${CASTDOCK_MAX_OPML_FEEDS:-500}
+      CASTDOCK_ALLOW_PRIVATE_FEEDS: ${CASTDOCK_ALLOW_PRIVATE_FEEDS:-false}
+      CASTDOCK_LOG_LEVEL: ${CASTDOCK_LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:${CASTDOCK_PORT:-8080}:8080"
+    volumes:
+      - ${CASTDOCK_DATA_DIR:-../../data}:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

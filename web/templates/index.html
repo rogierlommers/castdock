@@ -1,0 +1,50 @@
+{{define "index"}}
+{{template "header" .}}
+<section class="hero">
+  <div>
+    <p class="eyebrow">Your podcast library</p>
+    <h1>Listen on your terms.</h1>
+    <p>Subscribe to a public RSS feed or import an OPML collection.</p>
+  </div>
+  <form class="subscribe-form" method="post" action="/feeds">
+    <label for="feed-url">Podcast feed URL</label>
+    <div class="form-row">
+      <input id="feed-url" name="url" type="url" placeholder="https://example.com/feed.xml" required>
+      <button type="submit">Subscribe</button>
+    </div>
+  </form>
+</section>
+
+<section class="section-heading">
+  <div><p class="eyebrow">Subscriptions</p><h2>{{len .Feeds}} podcasts</h2></div>
+  {{if .Feeds}}
+  <form method="post" action="/refresh"><button class="secondary" type="submit">Refresh all</button></form>
+  {{end}}
+</section>
+
+{{if .Feeds}}
+<div class="feed-grid">
+  {{range .Feeds}}
+  <a class="feed-card" href="/feeds/{{.ID}}">
+    {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
+    <div><h3>{{if .Title}}{{.Title}}{{else}}{{.URL}}{{end}}</h3><p>{{.EpisodeCount}} episodes</p></div>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="empty-state"><h2>No subscriptions yet</h2><p>Add one feed above or <a href="/import">import an OPML file</a>.</p></div>
+{{end}}
+
+{{if .Episodes}}
+<section class="section-heading"><div><p class="eyebrow">Recently published</p><h2>Latest episodes</h2></div></section>
+<div class="episode-list">
+  {{range .Episodes}}
+  <a class="episode-row" href="/episodes/{{.ID}}">
+    <div><h3>{{.Title}}</h3><p>{{date .PublishedAt}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· {{duration .PositionSeconds}} listened{{end}}</p></div>
+    <span aria-hidden="true">Play →</span>
+  </a>
+  {{end}}
+</div>
+{{end}}
+{{template "footer" .}}
+{{end}}

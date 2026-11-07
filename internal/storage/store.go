@@ -1,0 +1,389 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/rlommers/castdock/internal/playback"
+	"github.com/rlommers/castdock/internal/podcast"
+	"github.com/rlommers/castdock/migrations"
+	_ "modernc.org/sqlite"
+)
+
+var ErrNotFound = errors.New("not found")
+
+type Store struct {
+	db *sql.DB
+}
+
+func Open(ctx context.Context, path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, fmt.Errorf("create database directory: %w", err)
+	}
+
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
+	dsnURL := &url.URL{Scheme: "file", Path: filepath.ToSlash(absolutePath)}
+	dsnURL.RawQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
+	dsn := dsnURL.String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(0)
+
+	store := &Store{db: db}
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+	if err := store.migrate(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+func (s *Store) Close() error { return s.db.Close() }
+
+func (s *Store) Health(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+func (s *Store) migrate(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at TEXT NOT NULL
+		)`); err != nil {
+		return fmt.Errorf("create migration table: %w", err)
+	}
+
+	entries, err := fs.ReadDir(migrations.Files, ".")
+	if err != nil {
+		return fmt.Errorf("list migrations: %w", err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		versionText, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			return fmt.Errorf("migration %q has no numeric prefix", entry.Name())
+		}
+		version, err := strconv.Atoi(versionText)
+		if err != nil {
+			return fmt.Errorf("migration %q has invalid version: %w", entry.Name(), err)
+		}
+		var applied int
+		err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&applied)
+		if err != nil {
+			return fmt.Errorf("check migration %d: %w", version, err)
+		}
+		if applied != 0 {
+			continue
+		}
+		contents, err := fs.ReadFile(migrations.Files, entry.Name())
+		if err != nil {
+			return fmt.Errorf("read migration %d: %w", version, err)
+		}
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin migration %d: %w", version, err)
+		}
+		if _, err = tx.ExecContext(ctx, string(contents)); err == nil {
+			_, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", version, formatTime(time.Now()))
+		}
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("apply migration %d: %w", version, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %d: %w", version, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) AddFeed(ctx context.Context, rawURL string) (podcast.Feed, bool, error) {
+	now := formatTime(time.Now())
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO feeds(url, created_at, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(url) DO NOTHING`, rawURL, now, now)
+	if err != nil {
+		return podcast.Feed{}, false, fmt.Errorf("insert feed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return podcast.Feed{}, false, fmt.Errorf("feed rows affected: %w", err)
+	}
+	feed, err := s.FeedByURL(ctx, rawURL)
+	return feed, rows == 1, err
+}
+
+func (s *Store) FeedByURL(ctx context.Context, rawURL string) (podcast.Feed, error) {
+	return scanFeed(s.db.QueryRowContext(ctx, feedSelect+" WHERE f.url = ? GROUP BY f.id", rawURL))
+}
+
+func (s *Store) Feed(ctx context.Context, id int64) (podcast.Feed, error) {
+	return scanFeed(s.db.QueryRowContext(ctx, feedSelect+" WHERE f.id = ? GROUP BY f.id", id))
+}
+
+func (s *Store) ListFeeds(ctx context.Context) ([]podcast.Feed, error) {
+	rows, err := s.db.QueryContext(ctx, feedSelect+" GROUP BY f.id ORDER BY lower(f.title), f.id")
+	if err != nil {
+		return nil, fmt.Errorf("list feeds: %w", err)
+	}
+	defer rows.Close()
+	var feeds []podcast.Feed
+	for rows.Next() {
+		feed, err := scanFeed(rows)
+		if err != nil {
+			return nil, err
+		}
+		feeds = append(feeds, feed)
+	}
+	return feeds, rows.Err()
+}
+
+const feedSelect = `
+	SELECT f.id, f.url, f.title, f.description, f.site_url, f.image_url,
+	       f.etag, f.last_modified, f.last_checked, f.last_success, f.last_error,
+	       f.created_at, f.updated_at, COUNT(e.id)
+	FROM feeds f LEFT JOIN episodes e ON e.feed_id = f.id`
+
+type scanner interface{ Scan(...any) error }
+
+func scanFeed(row scanner) (podcast.Feed, error) {
+	var feed podcast.Feed
+	var lastChecked, lastSuccess sql.NullString
+	var created, updated string
+	err := row.Scan(
+		&feed.ID, &feed.URL, &feed.Title, &feed.Description, &feed.SiteURL, &feed.ImageURL,
+		&feed.ETag, &feed.LastModified, &lastChecked, &lastSuccess, &feed.LastError,
+		&created, &updated, &feed.EpisodeCount,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return podcast.Feed{}, ErrNotFound
+	}
+	if err != nil {
+		return podcast.Feed{}, fmt.Errorf("scan feed: %w", err)
+	}
+	feed.LastChecked = parseOptionalTime(lastChecked)
+	feed.LastSuccess = parseOptionalTime(lastSuccess)
+	feed.CreatedAt = parseTime(created)
+	feed.UpdatedAt = parseTime(updated)
+	return feed, nil
+}
+
+func (s *Store) SaveParsedFeed(ctx context.Context, feedID int64, parsed podcast.ParsedFeed) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin feed save: %w", err)
+	}
+	defer tx.Rollback()
+	now := formatTime(time.Now())
+	result, err := tx.ExecContext(ctx, `
+		UPDATE feeds SET title = ?, description = ?, site_url = ?, image_url = ?, etag = ?,
+		last_modified = ?, last_checked = ?, last_success = ?, last_error = '', updated_at = ?
+		WHERE id = ?`, parsed.Title, parsed.Description, parsed.SiteURL, parsed.ImageURL,
+		parsed.ETag, parsed.LastModified, now, now, now, feedID)
+	if err != nil {
+		return fmt.Errorf("update feed: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return ErrNotFound
+	}
+	for _, episode := range parsed.Episodes {
+		var published any
+		if episode.PublishedAt != nil {
+			published = formatTime(*episode.PublishedAt)
+		}
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO episodes(
+				feed_id, guid, title, description, published_at, duration_seconds,
+				enclosure_url, enclosure_type, image_url, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(feed_id, guid) DO UPDATE SET
+				title = excluded.title,
+				description = excluded.description,
+				published_at = excluded.published_at,
+				duration_seconds = excluded.duration_seconds,
+				enclosure_url = excluded.enclosure_url,
+				enclosure_type = excluded.enclosure_type,
+				image_url = excluded.image_url,
+				updated_at = excluded.updated_at`,
+			feedID, episode.GUID, episode.Title, episode.Description, published,
+			episode.DurationSeconds, episode.EnclosureURL, episode.EnclosureType,
+			episode.ImageURL, now, now,
+		)
+		if err != nil {
+			return fmt.Errorf("upsert episode %q: %w", episode.GUID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit feed save: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) MarkFeedError(ctx context.Context, feedID int64, feedErr error) error {
+	now := formatTime(time.Now())
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE feeds SET last_checked = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+		now, truncate(feedErr.Error(), 1000), now, feedID)
+	if err != nil {
+		return fmt.Errorf("mark feed error: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) MarkFeedNotModified(ctx context.Context, feedID int64, etag, lastModified string) error {
+	now := formatTime(time.Now())
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE feeds SET etag = ?, last_modified = ?, last_checked = ?, last_success = ?,
+		last_error = '', updated_at = ? WHERE id = ?`,
+		etag, lastModified, now, now, now, feedID)
+	if err != nil {
+		return fmt.Errorf("mark feed not modified: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) EpisodesForFeed(ctx context.Context, feedID int64, limit, offset int) ([]podcast.Episode, error) {
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		WHERE e.feed_id = ?
+		ORDER BY e.published_at DESC, e.id DESC
+		LIMIT ? OFFSET ?`, feedID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list episodes: %w", err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) RecentEpisodes(ctx context.Context, limit int) ([]podcast.Episode, error) {
+	rows, err := s.db.QueryContext(ctx, episodeSelect+`
+		ORDER BY e.published_at DESC, e.id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent episodes: %w", err)
+	}
+	defer rows.Close()
+	return scanEpisodes(rows)
+}
+
+func (s *Store) Episode(ctx context.Context, id int64) (podcast.Episode, error) {
+	row := s.db.QueryRowContext(ctx, episodeSelect+" WHERE e.id = ?", id)
+	episode, err := scanEpisode(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return podcast.Episode{}, ErrNotFound
+	}
+	return episode, err
+}
+
+const episodeSelect = `
+	SELECT e.id, e.feed_id, e.guid, e.title, e.description, e.published_at,
+	       e.duration_seconds, e.enclosure_url, e.enclosure_type, e.image_url,
+	       e.created_at, e.updated_at,
+	       COALESCE(p.position_seconds, 0), COALESCE(p.duration_seconds, 0),
+	       COALESCE(p.completed, 0), COALESCE(p.playing, 0), p.updated_at
+	FROM episodes e LEFT JOIN playback p ON p.episode_id = e.id`
+
+func scanEpisodes(rows *sql.Rows) ([]podcast.Episode, error) {
+	var episodes []podcast.Episode
+	for rows.Next() {
+		episode, err := scanEpisode(rows)
+		if err != nil {
+			return nil, err
+		}
+		episodes = append(episodes, episode)
+	}
+	return episodes, rows.Err()
+}
+
+func scanEpisode(row scanner) (podcast.Episode, error) {
+	var episode podcast.Episode
+	var published, playbackUpdated sql.NullString
+	var created, updated string
+	err := row.Scan(
+		&episode.ID, &episode.FeedID, &episode.GUID, &episode.Title, &episode.Description,
+		&published, &episode.DurationSeconds, &episode.EnclosureURL, &episode.EnclosureType,
+		&episode.ImageURL, &created, &updated, &episode.PositionSeconds, &episode.PlayedDuration,
+		&episode.Completed, &episode.Playing, &playbackUpdated,
+	)
+	if err != nil {
+		return podcast.Episode{}, err
+	}
+	episode.PublishedAt = parseOptionalTime(published)
+	episode.PlaybackUpdated = parseOptionalTime(playbackUpdated)
+	episode.CreatedAt = parseTime(created)
+	episode.UpdatedAt = parseTime(updated)
+	return episode, nil
+}
+
+func (s *Store) SavePlayback(ctx context.Context, state playback.State) error {
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	now := formatTime(time.Now())
+	clientTime := formatTime(state.ClientUpdatedAt)
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO playback(
+			episode_id, position_seconds, duration_seconds, completed, playing,
+			client_updated_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(episode_id) DO UPDATE SET
+			position_seconds = excluded.position_seconds,
+			duration_seconds = excluded.duration_seconds,
+			completed = excluded.completed,
+			playing = excluded.playing,
+			client_updated_at = excluded.client_updated_at,
+			updated_at = excluded.updated_at
+		WHERE excluded.client_updated_at >= playback.client_updated_at`,
+		state.EpisodeID, state.Position, state.Duration, state.Completed, state.Playing,
+		clientTime, now,
+	)
+	if err != nil {
+		return fmt.Errorf("save playback: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		// A stale update is intentionally ignored and still considered successful.
+		return nil
+	}
+	return nil
+}
+
+func formatTime(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
+
+func parseTime(value string) time.Time {
+	parsed, _ := time.Parse(time.RFC3339Nano, value)
+	return parsed
+}
+
+func parseOptionalTime(value sql.NullString) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	parsed := parseTime(value.String)
+	return &parsed
+}
+
+func truncate(value string, max int) string {
+	if len(value) <= max {
+		return value
+	}
+	return value[:max]
+}

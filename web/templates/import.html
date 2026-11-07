@@ -1,0 +1,21 @@
+{{define "import"}}
+{{template "header" .}}
+<section class="narrow">
+  <p class="eyebrow">Bring your subscriptions</p>
+  <h1>Import an OPML file</h1>
+  <p>CastDock imports every valid podcast <code>xmlUrl</code>, skips subscriptions already in your library, and refreshes new feeds immediately.</p>
+  <form class="upload-form" method="post" action="/import" enctype="multipart/form-data">
+    <label for="opml">OPML file</label>
+    <input id="opml" name="opml" type="file" accept=".opml,.xml,text/x-opml,application/xml,text/xml" required>
+    <button type="submit">Import subscriptions</button>
+  </form>
+  {{if .Result}}
+  <div class="import-result" role="status">
+    <h2>Import complete</h2>
+    <p><strong>{{.Result.Imported}}</strong> imported · <strong>{{.Result.Skipped}}</strong> skipped · <strong>{{.Result.Failed}}</strong> refresh failures</p>
+    {{if .Result.Errors}}<details><summary>Feed errors</summary><ul>{{range .Result.Errors}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+  </div>
+  {{end}}
+</section>
+{{template "footer" .}}
+{{end}}

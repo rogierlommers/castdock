@@ -28,6 +28,9 @@ go.work.sum
 # env file
 .env
 
+# Local CastDock runtime data
+/data/
+
 # Editor/IDE
 # .idea/
 # .vscode/
