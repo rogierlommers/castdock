@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +44,22 @@ type Repository interface {
 	MoveQueuedEpisode(context.Context, int64, int) error
 	ReorderQueuedEpisode(context.Context, int64, int) error
 	SavePlayback(context.Context, playback.State) (bool, error)
+	LibraryStatistics(context.Context) (podcast.LibraryStatistics, error)
+}
+
+type SystemConfiguration struct {
+	StartedAt          time.Time
+	ListenAddress      string
+	DatabasePath       string
+	RefreshInterval    time.Duration
+	RefreshConcurrency int
+	HTTPTimeout        time.Duration
+	MaxFeedBytes       int64
+	MaxOPMLBytes       int64
+	MaxOPMLFeeds       int
+	AllowPrivateFeeds  bool
+	LogLevel           string
+	AccessLogEnabled   bool
 }
 
 type Server struct {
@@ -51,6 +69,7 @@ type Server struct {
 	maxOPMLBytes int64
 	maxOPMLFeeds int
 	accessLog    bool
+	systemConfig SystemConfiguration
 	templates    map[string]*template.Template
 	handler      http.Handler
 }
@@ -72,16 +91,28 @@ type pageData struct {
 	NextPage       int
 	HasPrevious    bool
 	HasNext        bool
+	Statistics     podcast.LibraryStatistics
+	SystemConfig   SystemConfiguration
+	AppVersion     string
+	GoVersion      string
+	Uptime         string
 }
 
-func New(repository Repository, service *syndication.Service, logger *slog.Logger, maxOPMLBytes int64, maxOPMLFeeds int, accessLog bool) (*Server, error) {
+func New(repository Repository, service *syndication.Service, logger *slog.Logger, maxOPMLBytes int64, maxOPMLFeeds int, accessLog bool, configurations ...SystemConfiguration) (*Server, error) {
 	templates, err := parseTemplates()
 	if err != nil {
 		return nil, err
 	}
+	systemConfig := SystemConfiguration{StartedAt: time.Now()}
+	if len(configurations) > 0 {
+		systemConfig = configurations[0]
+		if systemConfig.StartedAt.IsZero() {
+			systemConfig.StartedAt = time.Now()
+		}
+	}
 	server := &Server{
 		repository: repository, syndication: service, logger: logger,
-		maxOPMLBytes: maxOPMLBytes, maxOPMLFeeds: maxOPMLFeeds, accessLog: accessLog, templates: templates,
+		maxOPMLBytes: maxOPMLBytes, maxOPMLFeeds: maxOPMLFeeds, accessLog: accessLog, systemConfig: systemConfig, templates: templates,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.index)
@@ -107,6 +138,7 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("GET /archive", server.archive)
 	mux.HandleFunc("GET /recent", server.recent)
 	mux.HandleFunc("GET /history", server.playHistory)
+	mux.HandleFunc("GET /system", server.system)
 	mux.HandleFunc("POST /api/episodes/{id}/playback", server.savePlayback)
 	mux.HandleFunc("GET /healthz", server.health)
 	openAPI, err := apidocs.Files.ReadFile("openapi.yaml")
@@ -146,6 +178,9 @@ func parseTemplates() (map[string]*template.Template, error) {
 			}
 			return value.Local().Format("2 Jan 2006, 15:04")
 		},
+		"datetimeValue": func(value time.Time) string {
+			return value.Local().Format("2 Jan 2006, 15:04")
+		},
 		"duration": func(seconds float64) string {
 			total := int(seconds)
 			if total >= 3600 {
@@ -160,9 +195,10 @@ func parseTemplates() (map[string]*template.Template, error) {
 		"showNotesHTML": func(value string) template.HTML {
 			return template.HTML(contenthtml.SanitizeShowNotes(value))
 		},
+		"bytes": humanBytes,
 	}
 	result := make(map[string]*template.Template)
-	for _, name := range []string{"index", "library", "feed", "episode", "archive", "recent", "history"} {
+	for _, name := range []string{"index", "library", "feed", "episode", "archive", "recent", "history", "system"} {
 		parsed, err := template.New(name).Funcs(functions).ParseFS(
 			webassets.Files, "templates/layout.html", "templates/"+name+".html",
 		)
@@ -485,6 +521,61 @@ func (s *Server) playHistory(w http.ResponseWriter, r *http.Request) {
 		Title: "Play History", Episodes: episodes, ReturnTo: r.URL.RequestURI(),
 		Notice: r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
 	})
+}
+
+func (s *Server) system(w http.ResponseWriter, r *http.Request) {
+	statistics, err := s.repository.LibraryStatistics(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.render(w, r, "system", pageData{
+		Title: "System", Statistics: statistics, SystemConfig: s.systemConfig,
+		AppVersion: applicationVersion(), GoVersion: runtime.Version(),
+		Uptime: formatUptime(time.Since(s.systemConfig.StartedAt)),
+	})
+}
+
+func applicationVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	if !ok || buildInfo.Main.Version == "" {
+		return "development"
+	}
+	if buildInfo.Main.Version == "(devel)" {
+		return "development"
+	}
+	return buildInfo.Main.Version
+}
+
+func formatUptime(value time.Duration) string {
+	if value < 0 {
+		value = 0
+	}
+	days := int(value / (24 * time.Hour))
+	hours := int(value/time.Hour) % 24
+	minutes := int(value/time.Minute) % 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+func humanBytes(value int64) string {
+	const unit = int64(1024)
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	amount := float64(value)
+	index := -1
+	for amount >= float64(unit) && index < len(units)-1 {
+		amount /= float64(unit)
+		index++
+	}
+	return fmt.Sprintf("%.1f %s", amount, units[index])
 }
 
 func relativeTime(value *time.Time, now time.Time) string {

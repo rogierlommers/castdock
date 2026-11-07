@@ -74,3 +74,15 @@ type ParsedEpisode struct {
 	EnclosureType   string
 	ImageURL        string
 }
+
+type LibraryStatistics struct {
+	FeedCount       int
+	EpisodeCount    int
+	InboxCount      int
+	QueuedCount     int
+	ArchivedCount   int
+	CompletedCount  int
+	InProgressCount int
+	DatabaseBytes   int64
+	LatestFeedScan  *time.Time
+}

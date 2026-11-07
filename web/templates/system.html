@@ -1,0 +1,49 @@
+{{define "system"}}
+{{template "header" .}}
+<section class="section-heading page-heading">
+  <div><p class="eyebrow">Runtime overview</p><h1>System</h1><p>Read-only application health, library statistics, and effective configuration.</p></div>
+</section>
+
+<section aria-labelledby="runtime-heading">
+  <h2 id="runtime-heading">Runtime</h2>
+  <dl class="configuration-list">
+    <div><dt>CastDock version</dt><dd>{{.AppVersion}}</dd></div>
+    <div><dt>Go version</dt><dd>{{.GoVersion}}</dd></div>
+    <div><dt>Started</dt><dd>{{datetimeValue .SystemConfig.StartedAt}}</dd></div>
+    <div><dt>Uptime</dt><dd>{{.Uptime}}</dd></div>
+    <div><dt>Database size</dt><dd>{{bytes .Statistics.DatabaseBytes}}</dd></div>
+    <div><dt>Latest feed scan</dt><dd>{{datetime .Statistics.LatestFeedScan}}</dd></div>
+  </dl>
+</section>
+
+<section class="system-section" aria-labelledby="library-stats-heading">
+  <h2 id="library-stats-heading">Library statistics</h2>
+  <dl class="configuration-list">
+    <div><dt>Subscriptions</dt><dd>{{.Statistics.FeedCount}}</dd></div>
+    <div><dt>Total episodes</dt><dd>{{.Statistics.EpisodeCount}}</dd></div>
+    <div><dt>Inbox</dt><dd>{{.Statistics.InboxCount}}</dd></div>
+    <div><dt>Up Next</dt><dd>{{.Statistics.QueuedCount}}</dd></div>
+    <div><dt>Archived</dt><dd>{{.Statistics.ArchivedCount}}</dd></div>
+    <div><dt>Completed</dt><dd>{{.Statistics.CompletedCount}}</dd></div>
+    <div><dt>In progress</dt><dd>{{.Statistics.InProgressCount}}</dd></div>
+  </dl>
+</section>
+
+<section class="system-section" aria-labelledby="configuration-heading">
+  <div class="section-heading compact-heading"><div><p class="eyebrow">Environment-derived</p><h2 id="configuration-heading">Effective configuration</h2></div><span class="read-only-badge">Read only</span></div>
+  <dl class="configuration-list">
+    <div><dt>Listen address</dt><dd>{{.SystemConfig.ListenAddress}}</dd></div>
+    <div><dt>Database path</dt><dd>{{.SystemConfig.DatabasePath}}</dd></div>
+    <div><dt>Refresh interval</dt><dd>{{.SystemConfig.RefreshInterval}}</dd></div>
+    <div><dt>Refresh concurrency</dt><dd>{{.SystemConfig.RefreshConcurrency}}</dd></div>
+    <div><dt>Feed HTTP timeout</dt><dd>{{.SystemConfig.HTTPTimeout}}</dd></div>
+    <div><dt>Maximum feed size</dt><dd>{{bytes .SystemConfig.MaxFeedBytes}}</dd></div>
+    <div><dt>Maximum OPML size</dt><dd>{{bytes .SystemConfig.MaxOPMLBytes}}</dd></div>
+    <div><dt>Maximum OPML feeds</dt><dd>{{.SystemConfig.MaxOPMLFeeds}}</dd></div>
+    <div><dt>Allow private feeds</dt><dd>{{.SystemConfig.AllowPrivateFeeds}}</dd></div>
+    <div><dt>Log level</dt><dd>{{.SystemConfig.LogLevel}}</dd></div>
+    <div><dt>Access log enabled</dt><dd>{{.SystemConfig.AccessLogEnabled}}</dd></div>
+  </dl>
+</section>
+{{template "footer" .}}
+{{end}}

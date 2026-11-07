@@ -112,6 +112,11 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .feed-dates { display: grid; gap: .45rem; margin: .8rem 0 0; padding-top: .75rem; border-top: 1px solid var(--border); }
 .feed-dates div { display: flex; justify-content: space-between; gap: .75rem; font-size: .78rem; }
 .feed-dates dt { color: var(--muted); font-weight: 700; }.feed-dates dd { margin: 0; text-align: right; }
+.system-section { margin-top: 3rem; }
+.compact-heading { margin: 0 0 1rem; }.read-only-badge { padding: .25rem .55rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: .75rem; font-weight: 800; text-transform: uppercase; }
+.configuration-list { overflow: hidden; margin: 0; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); }
+.configuration-list div { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: 1rem; padding: .8rem 1rem; border-bottom: 1px solid var(--border); }
+.configuration-list div:last-child { border-bottom: 0; }.configuration-list dt { color: var(--muted); font-weight: 700; }.configuration-list dd { margin: 0; overflow-wrap: anywhere; }
 .site-footer { padding: 2rem; color: var(--muted); text-align: center; font-size: .85rem; }
 @media (max-width: 720px) {
   .hero, .podcast-header, .player-page { grid-template-columns: 1fr; padding: 1.4rem; gap: 1.5rem; }
@@ -120,6 +125,7 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
   .queue-item { align-items: flex-start; flex-wrap: wrap; }.queue-actions { width: 100%; padding-left: 3rem; }
   .recent-card { grid-template-columns: 5rem 1fr; }.recent-art img, .recent-art .art-placeholder { width: 5rem; }
   .opml-tools { grid-template-columns: 1fr; align-items: stretch; }.opml-import { grid-template-columns: 1fr; }.opml-import label { grid-column: auto; }
+  .configuration-list div { grid-template-columns: 1fr; gap: .2rem; }
 }
 @media (prefers-color-scheme: dark) {
   :root { --background: #171a17; --surface: #222622; --text: #f1eee5; --muted: #abb2a9; --border: #3d433d; --shadow: 0 16px 40px rgb(0 0 0 / 25%); }

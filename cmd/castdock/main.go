@@ -25,6 +25,7 @@ func main() {
 }
 
 func run() error {
+	startedAt := time.Now()
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -42,7 +43,20 @@ func run() error {
 
 	fetcher := syndication.NewFetcher(cfg.HTTPTimeout, cfg.MaxFeedBytes, cfg.AllowPrivateFeeds)
 	feedService := syndication.NewService(ctx, store, fetcher, logger, cfg.RefreshConcurrency)
-	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds, cfg.AccessLogEnabled)
+	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds, cfg.AccessLogEnabled, server.SystemConfiguration{
+		StartedAt:          startedAt,
+		ListenAddress:      cfg.ListenAddr,
+		DatabasePath:       cfg.DatabasePath,
+		RefreshInterval:    cfg.RefreshInterval,
+		RefreshConcurrency: cfg.RefreshConcurrency,
+		HTTPTimeout:        cfg.HTTPTimeout,
+		MaxFeedBytes:       cfg.MaxFeedBytes,
+		MaxOPMLBytes:       cfg.MaxOPMLBytes,
+		MaxOPMLFeeds:       cfg.MaxOPMLFeeds,
+		AllowPrivateFeeds:  cfg.AllowPrivateFeeds,
+		LogLevel:           cfg.LogLevel.String(),
+		AccessLogEnabled:   cfg.AccessLogEnabled,
+	})
 	if err != nil {
 		return err
 	}

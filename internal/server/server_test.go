@@ -34,6 +34,7 @@ type fakeRepository struct {
 	episode       podcast.Episode
 	reorderID     int64
 	reorderTarget int
+	statistics    podcast.LibraryStatistics
 }
 
 func (f *fakeRepository) Health(context.Context) error                      { return nil }
@@ -83,6 +84,9 @@ func (f *fakeRepository) ReorderQueuedEpisode(_ context.Context, id int64, targe
 func (f *fakeRepository) SavePlayback(_ context.Context, state playback.State) (bool, error) {
 	f.saved = state
 	return f.advanceQueue, nil
+}
+func (f *fakeRepository) LibraryStatistics(context.Context) (podcast.LibraryStatistics, error) {
+	return f.statistics, nil
 }
 
 func newTestServer(t *testing.T, repository Repository) *Server {
@@ -144,11 +148,11 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 		t.Fatalf("legacy homepage headings or controls remain: %s", body)
 	}
 	homeNav := strings.Index(body, `href="/">Home`)
-	recentNav := strings.Index(body, `href="/recent">Recent Published`)
 	historyNav := strings.Index(body, `href="/history">Play History`)
+	recentNav := strings.Index(body, `href="/recent">Recent Published`)
 	libraryNav := strings.Index(body, `href="/library">Library`)
-	if homeNav < 0 || recentNav < homeNav || historyNav < recentNav || libraryNav < historyNav {
-		t.Fatalf("navigation is not Home, Recent Published, Play History, Library: %s", body)
+	if homeNav < 0 || historyNav < homeNav || recentNav < historyNav || libraryNav < recentNav {
+		t.Fatalf("navigation is not Home, Play History, Recent Published, Library: %s", body)
 	}
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("Content-Security-Policy is missing")
@@ -243,6 +247,40 @@ func TestPlayHistoryRendersLatestTwentyWithRelativeTimestamp(t *testing.T) {
 	for _, expected := range []string{"Play History", "Recently played", "History show notes", "Finished playing:", "one hour ago", "feed.jpg"} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("history page missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
+	startedAt := time.Date(2026, 11, 7, 8, 0, 0, 0, time.Local)
+	latestScan := time.Date(2026, 11, 7, 9, 0, 0, 0, time.Local)
+	repository := &fakeRepository{statistics: podcast.LibraryStatistics{
+		FeedCount: 12, EpisodeCount: 345, InboxCount: 4, QueuedCount: 5,
+		ArchivedCount: 336, CompletedCount: 120, InProgressCount: 3,
+		DatabaseBytes: 2 << 20, LatestFeedScan: &latestScan,
+	}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, err := New(repository, nil, logger, 1024, 10, false, SystemConfiguration{
+		StartedAt: startedAt, ListenAddress: "127.0.0.1:8080", DatabasePath: "./data/castdock.db",
+		RefreshInterval: time.Hour, RefreshConcurrency: 4, HTTPTimeout: 20 * time.Second,
+		MaxFeedBytes: 32 << 20, MaxOPMLBytes: 5 << 20, MaxOPMLFeeds: 500,
+		LogLevel: "DEBUG", AccessLogEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/system", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		"System", "Read only", "Subscriptions", "<dd>12</dd>", "Total episodes", "<dd>345</dd>",
+		"2.0 MiB", "127.0.0.1:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "true",
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("system page missing %q: %s", expected, response.Body.String())
 		}
 	}
 }

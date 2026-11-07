@@ -12,7 +12,9 @@ Audio streams directly from each podcast publisher. CastDock stores metadata and
 
 New episodes discovered after a podcast's first refresh arrive in **Inbox**, shown as the primary landing-page section above **Up Next**. From there they can be archived or appended to the ordered queue. Up Next is managed entirely on the landing page with drag-and-drop ordering plus keyboard- and touch-friendly move controls. Subscription management, OPML import, and OPML export live together on the dedicated **Library** page. Existing feed history starts in the searchable **Archive**, and completing a queued episode archives it before advancing to the next item.
 
-The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, formatted show notes, played status, lifecycle state, and queue/archive actions. **Play History** uses the same detailed layout for the 20 most recently played episodes and shows a human-friendly playback timestamp. Publisher show-note HTML is sanitized during ingestion and again before rendering.
+**Play History** appears directly after Home and shows the 20 most recently played episodes with a human-friendly playback timestamp. The dedicated **Recent Published** page lists the complete library newest-first in bounded pages, including episode artwork, formatted show notes, played status, lifecycle state, and queue/archive actions. Publisher show-note HTML is sanitized during ingestion and again before rendering.
+
+The read-only **System** page shows runtime and build information, library and database statistics, and an explicit allow-list of effective configuration values. It never dumps the process environment, so future secret settings are not exposed automatically.
 
 **Refresh all** starts one application-owned background refresh and returns to the Library immediately. Manual and scheduled full-library refreshes share a single-flight guard, so they cannot overlap; an in-progress refresh is canceled cleanly during application shutdown rather than being recorded as a feed failure.
 

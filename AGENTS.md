@@ -29,6 +29,7 @@
 - Runtime configuration is environment-only. Add new settings to `internal/config`, `.env.example`, `README.md`, and Compose together; do not introduce runtime config files or CLI flags.
 - `api/openapi.yaml` is the published HTTP contract. Update it with every documented route, request, response, or compatibility change; `/swagger/` must remain self-hosted.
 - Access logs are opt-in through `CASTDOCK_ACCESS_LOG_ENABLED`; do not put per-request noise back under the general debug level. Migration progress and summaries are ordinary startup logs, with already-applied files visible at debug level.
+- The System page uses an explicit configuration allow-list. Never enumerate environment variables or reflect configuration generically; future settings may contain secrets.
 
 ## Safety and Operations
 

@@ -71,6 +71,45 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Health(ctx context.Context) error { return s.db.PingContext(ctx) }
 
+func (s *Store) LibraryStatistics(ctx context.Context) (podcast.LibraryStatistics, error) {
+	var statistics podcast.LibraryStatistics
+	var latestFeedScan sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM feeds),
+			COUNT(e.id),
+			COALESCE(SUM(CASE WHEN e.state = 'inbox' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN e.state = 'queued' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN e.state = 'archived' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN p.completed = 1 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN p.position_seconds > 0 AND p.completed = 0 THEN 1 ELSE 0 END), 0),
+			(SELECT MAX(last_checked) FROM feeds)
+		FROM episodes e
+		LEFT JOIN playback p ON p.episode_id = e.id`).Scan(
+		&statistics.FeedCount,
+		&statistics.EpisodeCount,
+		&statistics.InboxCount,
+		&statistics.QueuedCount,
+		&statistics.ArchivedCount,
+		&statistics.CompletedCount,
+		&statistics.InProgressCount,
+		&latestFeedScan,
+	)
+	if err != nil {
+		return podcast.LibraryStatistics{}, fmt.Errorf("load library statistics: %w", err)
+	}
+	statistics.LatestFeedScan = parseOptionalTime(latestFeedScan)
+	var pageCount, pageSize int64
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return podcast.LibraryStatistics{}, fmt.Errorf("read database page count: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return podcast.LibraryStatistics{}, fmt.Errorf("read database page size: %w", err)
+	}
+	statistics.DatabaseBytes = pageCount * pageSize
+	return statistics, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	s.logger.Info("database migration check started")
 	if _, err := s.db.ExecContext(ctx, `

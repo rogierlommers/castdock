@@ -188,6 +188,13 @@ func TestEpisodeLifecycleAndQueueOrdering(t *testing.T) {
 	if err != nil || len(queued) != 1 || queued[0].GUID != "new" || queued[0].QueuePosition == nil || *queued[0].QueuePosition != 1 {
 		t.Fatalf("QueuedEpisodes() after completion = %+v, %v", queued, err)
 	}
+	statistics, err := store.LibraryStatistics(ctx)
+	if err != nil {
+		t.Fatalf("LibraryStatistics() error = %v", err)
+	}
+	if statistics.FeedCount != 1 || statistics.EpisodeCount != 2 || statistics.QueuedCount != 1 || statistics.ArchivedCount != 1 || statistics.CompletedCount != 1 || statistics.DatabaseBytes <= 0 {
+		t.Fatalf("LibraryStatistics() = %+v", statistics)
+	}
 }
 
 func TestOpenMigratesExistingDatabaseIdempotently(t *testing.T) {
