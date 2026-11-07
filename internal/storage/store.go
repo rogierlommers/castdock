@@ -656,6 +656,52 @@ func (s *Store) SavePlayback(ctx context.Context, state playback.State) (bool, e
 	return advancedQueue, nil
 }
 
+func (s *Store) MarkEpisodePlayed(ctx context.Context, episodeID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin mark episode played: %w", err)
+	}
+	defer tx.Rollback()
+	var state podcast.EpisodeState
+	var queuePosition sql.NullInt64
+	var duration float64
+	if err := tx.QueryRowContext(ctx, "SELECT state, queue_position, duration_seconds FROM episodes WHERE id = ?", episodeID).Scan(&state, &queuePosition, &duration); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("read episode for played state: %w", err)
+	}
+	now := formatTime(time.Now())
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO playback(
+			episode_id, position_seconds, duration_seconds, completed, playing,
+			client_updated_at, updated_at
+		) VALUES (?, ?, ?, 1, 0, ?, ?)
+		ON CONFLICT(episode_id) DO UPDATE SET
+			position_seconds = excluded.position_seconds,
+			duration_seconds = excluded.duration_seconds,
+			completed = 1,
+			playing = 0,
+			client_updated_at = excluded.client_updated_at,
+			updated_at = excluded.updated_at`,
+		episodeID, duration, duration, now, now,
+	); err != nil {
+		return fmt.Errorf("save played state: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE episodes SET state = ?, queue_position = NULL WHERE id = ?", podcast.EpisodeStateArchived, episodeID); err != nil {
+		return fmt.Errorf("archive played episode: %w", err)
+	}
+	if state == podcast.EpisodeStateQueued && queuePosition.Valid {
+		if _, err := tx.ExecContext(ctx, "UPDATE episodes SET queue_position = queue_position - 1 WHERE queue_position > ?", queuePosition.Int64); err != nil {
+			return fmt.Errorf("compact played queue: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit mark episode played: %w", err)
+	}
+	return nil
+}
+
 func formatTime(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
 
 func parseTime(value string) time.Time {

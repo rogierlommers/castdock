@@ -56,6 +56,32 @@ paths:
           description: Cross-origin write rejected
         "500":
           description: Internal server error
+  /episodes/{id}/played:
+    post:
+      tags: [Playback]
+      summary: Mark an episode as played and archive it
+      description: Marks playback completed. If the episode is queued, it is removed and the remaining queue is compacted.
+      operationId: markEpisodePlayed
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                return_to:
+                  type: string
+                  description: Local path used after the state change
+      responses:
+        "303":
+          description: Episode marked played; redirects to the requested local page
+        "403":
+          description: Cross-origin write rejected
+        "404":
+          description: Episode not found
+        "500":
+          description: Internal server error
   /api/queue/reorder:
     post:
       tags: [Queue]

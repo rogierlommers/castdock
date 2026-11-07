@@ -34,6 +34,7 @@ type fakeRepository struct {
 	episode       podcast.Episode
 	reorderID     int64
 	reorderTarget int
+	playedID      int64
 	statistics    podcast.LibraryStatistics
 }
 
@@ -81,6 +82,10 @@ func (f *fakeRepository) ReorderQueuedEpisode(_ context.Context, id int64, targe
 	f.reorderTarget = target
 	return nil
 }
+func (f *fakeRepository) MarkEpisodePlayed(_ context.Context, id int64) error {
+	f.playedID = id
+	return nil
+}
 func (f *fakeRepository) SavePlayback(_ context.Context, state playback.State) (bool, error) {
 	f.saved = state
 	return f.advanceQueue, nil
@@ -121,6 +126,9 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	body := response.Body.String()
 	if !strings.Contains(body, "Inbox episode") || !strings.Contains(body, "/episodes/11/queue") || !strings.Contains(body, "/episodes/11/archive") {
 		t.Fatalf("landing page inbox actions missing: %s", body)
+	}
+	if strings.Count(body, "Mark as played") != 3 || !strings.Contains(body, "/episodes/11/played") || !strings.Contains(body, "/episodes/12/played") {
+		t.Fatalf("landing page mark-as-played actions missing: %s", body)
 	}
 	if inboxPosition, queuePosition := strings.Index(body, "Inbox · 1"), strings.Index(body, "Up Next · 2"); inboxPosition < 0 || queuePosition < 0 || inboxPosition > queuePosition {
 		t.Fatalf("inbox is not above Up Next: %s", body)
@@ -452,6 +460,19 @@ func TestQueueEpisodeTransitionsStateAndRedirectsLocally(t *testing.T) {
 	}
 	if location := response.Header().Get("Location"); !strings.HasPrefix(location, "/?") {
 		t.Fatalf("Location = %q", location)
+	}
+}
+
+func TestMarkEpisodePlayedRedirectsToHomepage(t *testing.T) {
+	repository := &fakeRepository{}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/episodes/42/played", strings.NewReader("return_to=%2F"))
+	request.Header.Set("Origin", "http://castdock.test")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther || repository.playedID != 42 || !strings.HasPrefix(response.Header().Get("Location"), "/?") {
+		t.Fatalf("status=%d playedID=%d location=%q", response.Code, repository.playedID, response.Header().Get("Location"))
 	}
 }
 

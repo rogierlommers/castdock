@@ -43,6 +43,7 @@
 - Playback updates are last-write-wins by client timestamp. The browser saves every five seconds while playing and on play, pause, seek, completion, and page hide; preserve out-of-order-write protection.
 - Episode lifecycle is server-owned: initial feed history and existing migrated rows are `archived`, episodes discovered on later refreshes are `inbox`, and user-selected episodes are `queued`. Feed upserts must preserve an existing episode's state.
 - Queue positions are unique and contiguous. Append, reorder, removal, and completed-playback transitions must remain transactional; completing a queued episode archives it and advances the web player.
+- Marking an episode as played writes completed playback state and archives it in the same transaction; queued episodes must also compact the remaining queue.
 - Up Next is managed on the landing page; `/up-next` is only a compatibility redirect. Drag-and-drop persists through `POST /queue/reorder`, while up/down forms remain the accessible touch and keyboard fallback.
 - Full-library refreshes are application-owned background work, never request-owned. Manual and scheduled runs share a single-flight guard, shutdown waits for cancellation to settle, and `context.Canceled` must not be persisted as a feed error.
 - Audio comes directly from publisher enclosure URLs. Do not add proxying or downloads without revisiting storage, range requests, SSRF, and backup behavior.

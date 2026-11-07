@@ -188,11 +188,22 @@ func TestEpisodeLifecycleAndQueueOrdering(t *testing.T) {
 	if err != nil || len(queued) != 1 || queued[0].GUID != "new" || queued[0].QueuePosition == nil || *queued[0].QueuePosition != 1 {
 		t.Fatalf("QueuedEpisodes() after completion = %+v, %v", queued, err)
 	}
+	if err := store.MarkEpisodePlayed(ctx, byGUID["new"].ID); err != nil {
+		t.Fatalf("MarkEpisodePlayed() error = %v", err)
+	}
+	markedPlayed, err := store.Episode(ctx, byGUID["new"].ID)
+	if err != nil || !markedPlayed.Completed || markedPlayed.State != podcast.EpisodeStateArchived || markedPlayed.QueuePosition != nil {
+		t.Fatalf("marked-played episode = %+v, %v", markedPlayed, err)
+	}
+	queued, err = store.QueuedEpisodes(ctx)
+	if err != nil || len(queued) != 0 {
+		t.Fatalf("QueuedEpisodes() after mark played = %+v, %v", queued, err)
+	}
 	statistics, err := store.LibraryStatistics(ctx)
 	if err != nil {
 		t.Fatalf("LibraryStatistics() error = %v", err)
 	}
-	if statistics.FeedCount != 1 || statistics.EpisodeCount != 2 || statistics.QueuedCount != 1 || statistics.ArchivedCount != 1 || statistics.CompletedCount != 1 || statistics.DatabaseBytes <= 0 {
+	if statistics.FeedCount != 1 || statistics.EpisodeCount != 2 || statistics.QueuedCount != 0 || statistics.ArchivedCount != 2 || statistics.CompletedCount != 2 || statistics.DatabaseBytes <= 0 {
 		t.Fatalf("LibraryStatistics() = %+v", statistics)
 	}
 }

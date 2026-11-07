@@ -24,6 +24,7 @@
     <div class="episode-actions">
       <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="/"><button type="submit">Add to Up Next</button></form>
       <form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Archive</button></form>
+      <form method="post" action="/episodes/{{.ID}}/played"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Mark as played</button></form>
     </div>
   </article>
   {{end}}
@@ -50,6 +51,7 @@
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="up"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} up">↑</button></form>
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="down"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} down">↓</button></form>
       <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Remove</button></form>
+      <form method="post" action="/episodes/{{.ID}}/played"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Mark as played</button></form>
     </div>
   </li>
   {{end}}

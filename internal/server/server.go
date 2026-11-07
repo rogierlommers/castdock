@@ -43,6 +43,7 @@ type Repository interface {
 	SetEpisodeState(context.Context, int64, podcast.EpisodeState) error
 	MoveQueuedEpisode(context.Context, int64, int) error
 	ReorderQueuedEpisode(context.Context, int64, int) error
+	MarkEpisodePlayed(context.Context, int64) error
 	SavePlayback(context.Context, playback.State) (bool, error)
 	LibraryStatistics(context.Context) (podcast.LibraryStatistics, error)
 }
@@ -130,6 +131,7 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("POST /episodes/{id}/queue", server.queueEpisode)
 	mux.HandleFunc("POST /episodes/{id}/queue/remove", server.removeQueuedEpisode)
 	mux.HandleFunc("POST /episodes/{id}/queue/move", server.moveQueuedEpisode)
+	mux.HandleFunc("POST /episodes/{id}/played", server.markEpisodePlayed)
 	mux.HandleFunc("GET /inbox", server.redirectLegacyInbox)
 	mux.HandleFunc("GET /up-next", server.redirectLegacyUpNext)
 	mux.HandleFunc("GET /up-next/play", server.playNext)
@@ -714,6 +716,27 @@ func (s *Server) moveQueuedEpisode(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Debug("queue order changed", "episode_id", id, "direction", r.FormValue("direction"))
 	redirectWithMessage(w, r, safeReturnTo(r.FormValue("return_to")), "notice", "Queue order updated.")
+}
+
+func (s *Server) markEpisodePlayed(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if err := s.repository.MarkEpisodePlayed(r.Context(), id); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	s.logger.Debug("episode marked as played", "episode_id", id)
+	redirectWithMessage(w, r, safeReturnTo(r.FormValue("return_to")), "notice", "Episode marked as played and archived.")
 }
 
 type queueReorderRequest struct {
