@@ -34,3 +34,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# MacOS
+.DS_Store
+clients/ios/CastDock.xcodeproj/project.xcworkspace/xcuserdata/rlommers.xcuserdatad/UserInterfaceState.xcuserstate
