@@ -265,6 +265,45 @@ func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 	}
 }
 
+func TestSharedHomeAPIUsesCanonicalEpisodeState(t *testing.T) {
+	position := 1
+	repository := &fakeRepository{
+		inbox: []podcast.Episode{{
+			ID: 31, FeedID: 4, FeedTitle: "Inbox podcast", FeedImageURL: "https://example.com/feed.jpg",
+			Title: "Inbox API episode", State: podcast.EpisodeStateInbox, FeedPlaybackSpeed: 1.5,
+		}},
+		queued: []podcast.Episode{{
+			ID: 32, FeedID: 5, FeedTitle: "Queue podcast", ImageURL: "https://example.com/episode.jpg",
+			Title: "Queued API episode", State: podcast.EpisodeStateQueued, QueuePosition: &position,
+			EnclosureURL: "https://example.com/audio.mp3", PositionSeconds: 42, FeedPlaybackSpeed: 1.25,
+		}},
+	}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/api/home", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("status=%d content-type=%q body=%s", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	for _, expected := range []string{`"inbox"`, `"upNext"`, `"Inbox API episode"`, `"imageUrl":"https://example.com/feed.jpg"`, `"playbackSpeed":1.5`, `"queuePosition":1`, `"positionSeconds":42`} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("home API missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestNativeAPIWriteUsesClientHeaderWithoutBrowserOrigin(t *testing.T) {
+	repository := &fakeRepository{}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/episodes/42/queue", nil)
+	request.Header.Set("X-CastDock-Client", "ios")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || repository.stateID != 42 || repository.state != podcast.EpisodeStateQueued {
+		t.Fatalf("status=%d state=%d/%s body=%s", response.Code, repository.stateID, repository.state, response.Body.String())
+	}
+}
+
 func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	server := newTestServer(t, &fakeRepository{
 		feed: podcast.Feed{ID: 4, Title: "Example podcast", PlaybackSpeed: 1.5},
@@ -609,6 +648,29 @@ func TestAuthenticationLeavesHealthPublicAndProtectsAPI(t *testing.T) {
 	server.Handler().ServeHTTP(apiResponse, apiRequest)
 	if apiResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated API status = %d", apiResponse.Code)
+	}
+}
+
+func TestNativeAPISessionCreatesAuthenticatedCookie(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	authentication := authn.New("listener", "password", time.Hour)
+	server, err := New(&fakeRepository{}, nil, logger, Options{
+		MaxOPMLBytes: 1024, MaxOPMLFeeds: 10, Authentication: authentication,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/session", strings.NewReader(`{"username":"listener","password":"password"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CastDock-Client", "ios")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || !authentication.Valid(cookies[0].Value) {
+		t.Fatalf("API session cookies = %#v", cookies)
 	}
 }
 

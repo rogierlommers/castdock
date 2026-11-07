@@ -4,8 +4,8 @@ info:
   version: 0.1.0
   description: |
     HTTP endpoints used by CastDock's web player and subscription tooling.
-    CastDock is a single-user, self-hosted application and currently has no
-    application-level authentication. Keep the service on a trusted network.
+    CastDock is a single-user, self-hosted application with optional
+    cookie-based authentication. Keep unauthenticated deployments on a trusted network.
 servers:
   - url: /
 security:
@@ -68,6 +68,45 @@ paths:
           description: Login succeeded; session cookie set
         "401":
           description: Invalid credentials
+  /api/session:
+    post:
+      security: []
+      tags: [System]
+      summary: Create a native-client session
+      operationId: createAPISession
+      parameters:
+        - $ref: "#/components/parameters/ClientHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              additionalProperties: false
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        "204":
+          description: Session created, or authentication is disabled
+        "400":
+          description: Invalid request body
+        "401":
+          description: Invalid credentials
+    delete:
+      security: []
+      tags: [System]
+      summary: Revoke a native-client session
+      operationId: deleteAPISession
+      parameters:
+        - $ref: "#/components/parameters/ClientHeader"
+      responses:
+        "204":
+          description: Session revoked
   /logout:
     post:
       tags: [System]
@@ -76,6 +115,85 @@ paths:
       responses:
         "303":
           description: Session revoked and cookie cleared
+  /api/home:
+    get:
+      tags: [Queue]
+      summary: Get Inbox and Up Next episodes
+      operationId: getHome
+      responses:
+        "200":
+          description: Canonical home state shared by native clients
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [inbox, upNext]
+                properties:
+                  inbox:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Episode"
+                  upNext:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Episode"
+        "401":
+          description: Authentication required
+  /api/episodes/{id}:
+    get:
+      tags: [Playback]
+      summary: Get one episode
+      operationId: getEpisode
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+      responses:
+        "200":
+          description: Episode detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Episode"
+        "404":
+          description: Episode not found
+  /api/episodes/{id}/queue:
+    post:
+      tags: [Queue]
+      summary: Append an episode to Up Next
+      operationId: queueEpisode
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+        - $ref: "#/components/parameters/ClientHeader"
+      responses:
+        "204":
+          description: Episode queued
+        "404":
+          description: Episode not found
+  /api/episodes/{id}/archive:
+    post:
+      tags: [Queue]
+      summary: Archive an episode
+      operationId: archiveEpisode
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+        - $ref: "#/components/parameters/ClientHeader"
+      responses:
+        "204":
+          description: Episode archived
+        "404":
+          description: Episode not found
+  /api/episodes/{id}/played:
+    post:
+      tags: [Playback]
+      summary: Mark an episode played and archive it
+      operationId: markEpisodePlayedAPI
+      parameters:
+        - $ref: "#/components/parameters/EpisodeID"
+        - $ref: "#/components/parameters/ClientHeader"
+      responses:
+        "204":
+          description: Episode marked played
+        "404":
+          description: Episode not found
   /api/episodes/{id}/playback:
     post:
       tags: [Playback]
@@ -230,6 +348,14 @@ components:
       in: cookie
       name: castdock_session
   parameters:
+    ClientHeader:
+      name: X-CastDock-Client
+      in: header
+      required: false
+      description: Native clients set this header on writes that do not carry browser Origin metadata.
+      schema:
+        type: string
+        example: ios
     EpisodeID:
       name: id
       in: path
@@ -249,6 +375,27 @@ components:
         format: int64
         minimum: 1
   schemas:
+    Episode:
+      type: object
+      required: [id, feedId, podcastTitle, title, description, durationSeconds, enclosureUrl, enclosureType, state, positionSeconds, playedDuration, completed, playbackSpeed]
+      properties:
+        id: {type: integer, format: int64}
+        feedId: {type: integer, format: int64}
+        podcastTitle: {type: string}
+        title: {type: string}
+        description: {type: string}
+        publishedAt: {type: string, format: date-time}
+        durationSeconds: {type: integer}
+        enclosureUrl: {type: string, format: uri}
+        enclosureType: {type: string}
+        imageUrl: {type: string, format: uri}
+        state: {type: string, enum: [inbox, queued, archived]}
+        queuePosition: {type: integer}
+        positionSeconds: {type: number, format: double}
+        playedDuration: {type: number, format: double}
+        completed: {type: boolean}
+        playbackUpdatedAt: {type: string, format: date-time}
+        playbackSpeed: {type: number, format: double, minimum: 0.5, maximum: 3.0}
     PlaybackUpdate:
       type: object
       required: [position, duration, completed, playing, clientUpdatedAt]
