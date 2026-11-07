@@ -24,11 +24,16 @@ button:hover, .button:hover { background: var(--accent-dark); }
 .secondary { color: var(--text); background: transparent; border: 1px solid var(--border); }
 .secondary:hover { background: var(--surface); }
 .site-header { display: flex; justify-content: space-between; align-items: center; max-width: 72rem; margin: auto; padding: 1.25rem 1.5rem; }
-.brand { font-size: 1.35rem; font-weight: 900; text-decoration: none; letter-spacing: -.04em; }
+.brand { display: inline-flex; align-items: center; gap: .45rem; font-size: 1.35rem; font-weight: 900; text-decoration: none; letter-spacing: -.04em; line-height: 1; }
+.brand img { width: 1.25rem; height: 1.25rem; flex: 0 0 1.25rem; }
 nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 650; text-decoration: none; }
 .container { width: min(72rem, calc(100% - 2rem)); margin: 2rem auto 5rem; }
 .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; padding: 3rem; border-radius: 1.2rem; background: #262d27; color: white; box-shadow: var(--shadow); }
 .hero h1, .podcast-header h1, .player-copy h1, .narrow h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.5rem); line-height: .98; letter-spacing: -.055em; }
+.dashboard-hero { gap: 2rem; padding: 2rem; }
+.dashboard-hero h1 { font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; }
+.dashboard-hero p:last-child { margin-bottom: 0; }
+.hero-github-link { color: inherit; font-weight: 750; }
 .dashboard-links { display: grid; align-content: center; gap: .7rem; }
 .dark-secondary { color: white; border-color: rgb(255 255 255 / 35%); }
 .dark-secondary:hover { color: var(--text); }
@@ -123,9 +128,10 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .configuration-list div { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: 1rem; padding: .8rem 1rem; border-bottom: 1px solid var(--border); }
 .configuration-list div:last-child { border-bottom: 0; }.configuration-list dt { color: var(--muted); font-weight: 700; }.configuration-list dd { margin: 0; overflow-wrap: anywhere; }
 .site-footer { padding: 2rem; color: var(--muted); text-align: center; font-size: .85rem; }
+.site-footer a { color: inherit; font-weight: 700; }
 @media (max-width: 720px) {
   .hero, .podcast-header, .player-page { grid-template-columns: 1fr; padding: 1.4rem; gap: 1.5rem; }
-  .player-page { padding: 0; }.hero h1 { font-size: 2.8rem; }.form-row { flex-direction: column; }
+  .player-page { padding: 0; }.hero h1 { font-size: 2.8rem; }.dashboard-hero { padding: 1.25rem; }.dashboard-hero h1 { font-size: 2.25rem; }.form-row { flex-direction: column; }
   .site-header { align-items: flex-start; }.site-header, nav { gap: .8rem; } nav { flex-direction: column; text-align: right; }
   .queue-item { align-items: flex-start; flex-wrap: wrap; }.queue-actions { width: 100%; padding-left: 3rem; }
   .recent-card { grid-template-columns: 5rem 1fr; }.recent-art img, .recent-art .art-placeholder { width: 5rem; }

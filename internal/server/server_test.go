@@ -172,6 +172,15 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("Content-Security-Policy is missing")
 	}
+	if !strings.Contains(body, `href="https://github.com/rogierlommers/castdock"`) || !strings.Contains(body, "View on GitHub") {
+		t.Fatalf("GitHub repository link missing from layout: %s", body)
+	}
+	if !strings.Contains(body, `class="hero-github-link"`) {
+		t.Fatalf("GitHub repository link missing from homepage introduction: %s", body)
+	}
+	if !strings.Contains(body, `<a class="brand" href="/"><img src="/static/favicon.svg"`) {
+		t.Fatalf("favicon missing from site header brand: %s", body)
+	}
 }
 
 func TestLibraryPageRendersSubscriptionsAndManagement(t *testing.T) {

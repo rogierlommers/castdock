@@ -115,3 +115,7 @@ Configure these GitHub repository secrets before the first publishing run:
 | `deploy/compose/` | Container image and Compose deployment |
 | `.github/` | CI, Docker Hub publishing, and Dependabot configuration |
 | `clients/` | iOS, Android, and Linux/macOS CLI clients that consume the HTTP API |
+
+## License
+
+CastDock is open-source software licensed under the [MIT License](LICENSE).
