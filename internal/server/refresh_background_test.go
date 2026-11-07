@@ -88,7 +88,7 @@ func TestRefreshAllContinuesAfterRequestCancellation(t *testing.T) {
 func newTestServerWithService(t *testing.T, repository Repository, service *syndication.Service) *Server {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	server, err := New(repository, service, logger, 1024, 10, false)
+	server, err := New(repository, service, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

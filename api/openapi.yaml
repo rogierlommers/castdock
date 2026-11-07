@@ -8,6 +8,8 @@ info:
     application-level authentication. Keep the service on a trusted network.
 servers:
   - url: /
+security:
+  - cookieAuth: []
 tags:
   - name: System
   - name: Playback
@@ -16,6 +18,7 @@ tags:
 paths:
   /healthz:
     get:
+      security: []
       tags: [System]
       summary: Check service and database health
       operationId: getHealth
@@ -29,6 +32,50 @@ paths:
                 example: "ok\n"
         "503":
           description: Database is unavailable
+  /login:
+    get:
+      security: []
+      tags: [System]
+      summary: Render the login form
+      operationId: getLogin
+      responses:
+        "200":
+          description: HTML login form
+        "303":
+          description: Authentication is disabled or the request already has a valid session
+    post:
+      security: []
+      tags: [System]
+      summary: Authenticate and create a session
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+                next:
+                  type: string
+      responses:
+        "303":
+          description: Login succeeded; session cookie set
+        "401":
+          description: Invalid credentials
+  /logout:
+    post:
+      tags: [System]
+      summary: Revoke the current session
+      operationId: logout
+      responses:
+        "303":
+          description: Session revoked and cookie cleared
   /api/episodes/{id}/playback:
     post:
       tags: [Playback]
@@ -177,6 +224,11 @@ paths:
         "500":
           description: Internal server error
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: castdock_session
   parameters:
     EpisodeID:
       name: id

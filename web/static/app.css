@@ -27,6 +27,7 @@ button:hover, .button:hover { background: var(--accent-dark); }
 .brand { display: inline-flex; align-items: center; gap: .45rem; font-size: 1.35rem; font-weight: 900; text-decoration: none; letter-spacing: -.04em; line-height: 1; }
 .brand img { width: 1.25rem; height: 1.25rem; flex: 0 0 1.25rem; }
 nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 650; text-decoration: none; }
+.logout-form { margin: 0; }.logout-form button { padding: 0; color: var(--muted); background: transparent; font-weight: 650; }.logout-form button:hover { color: var(--accent); background: transparent; }
 .container { width: min(72rem, calc(100% - 2rem)); margin: 2rem auto 5rem; }
 .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; padding: 3rem; border-radius: 1.2rem; background: #262d27; color: white; box-shadow: var(--shadow); }
 .hero h1, .podcast-header h1, .player-copy h1, .narrow h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.5rem); line-height: .98; letter-spacing: -.055em; }
@@ -129,6 +130,10 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .configuration-list div:last-child { border-bottom: 0; }.configuration-list dt { color: var(--muted); font-weight: 700; }.configuration-list dd { margin: 0; overflow-wrap: anywhere; }
 .site-footer { padding: 2rem; color: var(--muted); text-align: center; font-size: .85rem; }
 .site-footer a { color: inherit; font-weight: 700; }
+.login-page { display: grid; min-height: 100vh; place-items: center; padding: 1rem; }
+.login-card { width: min(26rem, 100%); padding: 2rem; border: 1px solid var(--border); border-radius: 1.1rem; background: var(--surface); box-shadow: var(--shadow); }
+.login-brand { margin-bottom: 2rem; }.login-card h1 { margin: 0 0 1.5rem; font-size: 2.5rem; letter-spacing: -.045em; }
+.login-form { display: grid; gap: .75rem; }.login-form label { margin: .25rem 0 -.35rem; }.login-form button { margin-top: .5rem; }
 @media (max-width: 720px) {
   .hero, .podcast-header, .player-page { grid-template-columns: 1fr; padding: 1.4rem; gap: 1.5rem; }
   .player-page { padding: 0; }.hero h1 { font-size: 2.8rem; }.dashboard-hero { padding: 1.25rem; }.dashboard-hero h1 { font-size: 2.25rem; }.form-row { flex-direction: column; }

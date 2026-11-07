@@ -30,6 +30,9 @@ type Config struct {
 	RefreshConcurrency int
 	AllowPrivateFeeds  bool
 	AccessLogEnabled   bool
+	AuthUsername       string
+	AuthPassword       string
+	SessionTTL         time.Duration
 	LogLevel           slog.Level
 }
 
@@ -43,6 +46,7 @@ func Load() (Config, error) {
 		MaxOPMLBytes:       defaultMaxOPMLBytes,
 		MaxOPMLFeeds:       500,
 		RefreshConcurrency: 4,
+		SessionTTL:         30 * 24 * time.Hour,
 		LogLevel:           slog.LevelInfo,
 	}
 
@@ -56,6 +60,7 @@ func Load() (Config, error) {
 
 	parseDurationEnv("CASTDOCK_REFRESH_INTERVAL", &cfg.RefreshInterval, true, &errs)
 	parseDurationEnv("CASTDOCK_HTTP_TIMEOUT", &cfg.HTTPTimeout, false, &errs)
+	parseDurationEnv("CASTDOCK_SESSION_TTL", &cfg.SessionTTL, false, &errs)
 	parsePositiveInt64Env("CASTDOCK_MAX_FEED_BYTES", &cfg.MaxFeedBytes, &errs)
 	parsePositiveInt64Env("CASTDOCK_MAX_OPML_BYTES", &cfg.MaxOPMLBytes, &errs)
 	if raw, ok := os.LookupEnv("CASTDOCK_MAX_OPML_FEEDS"); ok {
@@ -91,6 +96,11 @@ func Load() (Config, error) {
 			cfg.AccessLogEnabled = value
 		}
 	}
+	cfg.AuthUsername = strings.TrimSpace(os.Getenv("CASTDOCK_AUTH_USERNAME"))
+	cfg.AuthPassword = os.Getenv("CASTDOCK_AUTH_PASSWORD")
+	if (cfg.AuthUsername == "") != (cfg.AuthPassword == "") {
+		errs = append(errs, errors.New("CASTDOCK_AUTH_USERNAME and CASTDOCK_AUTH_PASSWORD must either both be set or both be empty"))
+	}
 
 	if raw, ok := os.LookupEnv("CASTDOCK_LOG_LEVEL"); ok {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -108,6 +118,10 @@ func Load() (Config, error) {
 	}
 
 	return cfg, errors.Join(errs...)
+}
+
+func (c Config) AuthenticationEnabled() bool {
+	return c.AuthUsername != "" && c.AuthPassword != ""
 }
 
 func envOrDefault(name, fallback string) string {

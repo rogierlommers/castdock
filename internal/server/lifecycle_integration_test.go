@@ -33,7 +33,7 @@ func TestInboxArchiveAndQueueWorkflow(t *testing.T) {
 	if err := store.SaveParsedFeed(ctx, feed.ID, podcast.ParsedFeed{Title: "Example podcast", Episodes: []podcast.ParsedEpisode{{GUID: "old", Title: "Old episode"}, {GUID: "new", Title: "New episode"}}}, false); err != nil {
 		t.Fatalf("later SaveParsedFeed() error = %v", err)
 	}
-	server, err := New(store, nil, logger, 1024, 10, false)
+	server, err := New(store, nil, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

@@ -1,0 +1,29 @@
+{{define "login"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Sign in · CastDock</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <a class="brand login-brand" href="/login"><img src="/static/favicon.svg" alt="" aria-hidden="true">CastDock</a>
+    <p class="eyebrow">Private podcast library</p>
+    <h1>Sign in</h1>
+    {{if .LoginError}}<div class="error" role="alert">{{.LoginError}}</div>{{end}}
+    <form class="login-form" method="post" action="/login">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}

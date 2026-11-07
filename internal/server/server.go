@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	apidocs "github.com/rlommers/castdock/api"
+	authn "github.com/rlommers/castdock/internal/auth"
 	contenthtml "github.com/rlommers/castdock/internal/content"
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
@@ -51,30 +53,41 @@ type Repository interface {
 }
 
 type SystemConfiguration struct {
-	StartedAt          time.Time
-	ListenAddress      string
-	DatabasePath       string
-	RefreshInterval    time.Duration
-	RefreshConcurrency int
-	HTTPTimeout        time.Duration
-	MaxFeedBytes       int64
-	MaxOPMLBytes       int64
-	MaxOPMLFeeds       int
-	AllowPrivateFeeds  bool
-	LogLevel           string
-	AccessLogEnabled   bool
+	StartedAt             time.Time
+	ListenAddress         string
+	DatabasePath          string
+	RefreshInterval       time.Duration
+	RefreshConcurrency    int
+	HTTPTimeout           time.Duration
+	MaxFeedBytes          int64
+	MaxOPMLBytes          int64
+	MaxOPMLFeeds          int
+	AllowPrivateFeeds     bool
+	LogLevel              string
+	AccessLogEnabled      bool
+	AuthenticationEnabled bool
+	SessionTTL            time.Duration
+}
+
+type Options struct {
+	MaxOPMLBytes   int64
+	MaxOPMLFeeds   int
+	AccessLog      bool
+	SystemConfig   SystemConfiguration
+	Authentication *authn.Manager
 }
 
 type Server struct {
-	repository   Repository
-	syndication  *syndication.Service
-	logger       *slog.Logger
-	maxOPMLBytes int64
-	maxOPMLFeeds int
-	accessLog    bool
-	systemConfig SystemConfiguration
-	templates    map[string]*template.Template
-	handler      http.Handler
+	repository     Repository
+	syndication    *syndication.Service
+	logger         *slog.Logger
+	maxOPMLBytes   int64
+	maxOPMLFeeds   int
+	accessLog      bool
+	systemConfig   SystemConfiguration
+	authentication *authn.Manager
+	templates      map[string]*template.Template
+	handler        http.Handler
 }
 
 type pageData struct {
@@ -99,26 +112,34 @@ type pageData struct {
 	AppVersion     string
 	GoVersion      string
 	Uptime         string
+	AuthEnabled    bool
+	LoginError     string
+	Next           string
 }
 
-func New(repository Repository, service *syndication.Service, logger *slog.Logger, maxOPMLBytes int64, maxOPMLFeeds int, accessLog bool, configurations ...SystemConfiguration) (*Server, error) {
+func New(repository Repository, service *syndication.Service, logger *slog.Logger, options Options) (*Server, error) {
 	templates, err := parseTemplates()
 	if err != nil {
 		return nil, err
 	}
-	systemConfig := SystemConfiguration{StartedAt: time.Now()}
-	if len(configurations) > 0 {
-		systemConfig = configurations[0]
-		if systemConfig.StartedAt.IsZero() {
-			systemConfig.StartedAt = time.Now()
-		}
+	systemConfig := options.SystemConfig
+	if systemConfig.StartedAt.IsZero() {
+		systemConfig.StartedAt = time.Now()
+	}
+	authentication := options.Authentication
+	if authentication == nil {
+		authentication = authn.New("", "", time.Hour)
 	}
 	server := &Server{
 		repository: repository, syndication: service, logger: logger,
-		maxOPMLBytes: maxOPMLBytes, maxOPMLFeeds: maxOPMLFeeds, accessLog: accessLog, systemConfig: systemConfig, templates: templates,
+		maxOPMLBytes: options.MaxOPMLBytes, maxOPMLFeeds: options.MaxOPMLFeeds, accessLog: options.AccessLog,
+		systemConfig: systemConfig, authentication: authentication, templates: templates,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.index)
+	mux.HandleFunc("GET /login", server.loginPage)
+	mux.HandleFunc("POST /login", server.login)
+	mux.HandleFunc("POST /logout", server.logout)
 	mux.HandleFunc("GET /library", server.library)
 	mux.HandleFunc("POST /feeds", server.addFeed)
 	mux.HandleFunc("GET /feeds/{id}", server.feed)
@@ -206,7 +227,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 		},
 	}
 	result := make(map[string]*template.Template)
-	for _, name := range []string{"index", "library", "feed", "episode", "archive", "recent", "history", "system"} {
+	for _, name := range []string{"index", "library", "feed", "episode", "archive", "recent", "history", "system", "login"} {
 		parsed, err := template.New(name).Funcs(functions).ParseFS(
 			webassets.Files, "templates/layout.html", "templates/"+name+".html",
 		)
@@ -258,8 +279,96 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				return
 			}
 		}
+		if s.authentication.Enabled() && !publicAuthPath(r.URL.Path) && !s.authenticated(r) {
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/queue/reorder" {
+				http.Error(response, "authentication required", http.StatusUnauthorized)
+				return
+			}
+			next := "/"
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				next = r.URL.RequestURI()
+			}
+			http.Redirect(response, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+			return
+		}
 		next.ServeHTTP(response, r)
 	})
+}
+
+const sessionCookieName = "castdock_session"
+
+func publicAuthPath(path string) bool {
+	return path == "/login" || path == "/healthz" || strings.HasPrefix(path, "/static/")
+}
+
+func (s *Server) authenticated(r *http.Request) bool {
+	cookie, err := r.Cookie(sessionCookieName)
+	return err == nil && s.authentication.Valid(cookie.Value)
+}
+
+func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
+	if !s.authentication.Enabled() {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if s.authenticated(r) {
+		http.Redirect(w, r, safeReturnTo(r.URL.Query().Get("next")), http.StatusSeeOther)
+		return
+	}
+	s.render(w, r, "login", pageData{Title: "Sign in", Next: safeReturnTo(r.URL.Query().Get("next"))})
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if !s.authentication.Enabled() {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	next := safeReturnTo(r.FormValue("next"))
+	if !s.authentication.Authenticate(r.FormValue("username"), r.FormValue("password")) {
+		time.Sleep(250 * time.Millisecond)
+		s.logger.Warn("login failed", "remote_address", remoteHost(r.RemoteAddr))
+		s.renderStatus(w, r, "login", pageData{Title: "Sign in", LoginError: "Invalid username or password.", Next: next}, http.StatusUnauthorized)
+		return
+	}
+	token, err := s.authentication.CreateSession()
+	if err != nil {
+		s.internalError(w, r, fmt.Errorf("create session: %w", err))
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(s.authentication.TTL().Seconds()),
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
+	})
+	s.logger.Info("login succeeded", "remote_address", remoteHost(r.RemoteAddr))
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		s.authentication.Revoke(cookie.Value)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
+func remoteHost(address string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	return host
 }
 
 type responseMetrics struct {
@@ -903,13 +1012,18 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data pageData) {
+	s.renderStatus(w, r, name, data, http.StatusOK)
+}
+
+func (s *Server) renderStatus(w http.ResponseWriter, r *http.Request, name string, data pageData, status int) {
+	data.AuthEnabled = s.authentication.Enabled()
 	var output bytes.Buffer
 	if err := s.templates[name].ExecuteTemplate(&output, name, data); err != nil {
 		s.internalError(w, r, fmt.Errorf("render %s: %w", name, err))
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	output.WriteTo(w)
 }
 

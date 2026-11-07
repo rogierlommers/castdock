@@ -21,7 +21,7 @@ The read-only **System** page shows runtime and build information, library and d
 **Refresh all** starts one application-owned background refresh and returns to the Library immediately. Manual and scheduled full-library refreshes share a single-flight guard, so they cannot overlap; an in-progress refresh is canceled cleanly during application shutdown rather than being recorded as a feed failure.
 
 > [!WARNING]
-> CastDock does not yet include authentication. Keep it on a trusted private network; the supplied Docker Compose configuration publishes only to loopback by default.
+> Authentication is optional and disabled when credentials are empty. Keep unauthenticated deployments on a trusted private network. Even with login enabled, prefer HTTPS through a trusted reverse proxy or private overlay network so credentials and session cookies are not sent over plaintext HTTP.
 
 ## Run with docker
 
@@ -119,8 +119,13 @@ go test ./internal/syndication -run '^TestParseOPMLNestedAndDeduplicated$'
 | `CASTDOCK_ALLOW_PRIVATE_FEEDS` | `false` | Allow feed URLs resolving to private addresses |
 | `CASTDOCK_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
 | `CASTDOCK_ACCESS_LOG_ENABLED` | `false` | Emit one access log for each HTTP request |
+| `CASTDOCK_AUTH_USERNAME` | empty | Single-user login name; both credentials must be set to enable authentication |
+| `CASTDOCK_AUTH_PASSWORD` | empty | Single-user password; keep it secret and never commit a populated `.env` |
+| `CASTDOCK_SESSION_TTL` | `720h` | Login session lifetime; sessions are invalidated when CastDock restarts |
 
 Every runtime setting is read from the environment and validated during startup. There are no application config files or runtime CLI flags.
+
+When authentication is enabled, CastDock protects the web UI, Swagger, OPML operations, and JSON API with an opaque, in-memory session. `/login`, static assets, and `/healthz` remain public. The System page reports only whether authentication is enabled and the session lifetime; it never displays the username or password.
 
 Logs are written to stdout as human-readable `key=value` text. Set `CASTDOCK_LOG_LEVEL=debug` for playback-position saves and one detailed completion event per feed refresh. Set `CASTDOCK_ACCESS_LOG_ENABLED=true` independently to emit request method, path, status, response size, and duration at `info`. Logs intentionally identify feeds by database ID, title, and hostname rather than full URL because private feed URLs may contain subscription tokens.
 

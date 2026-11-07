@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	authn "github.com/rlommers/castdock/internal/auth"
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
 	"github.com/rlommers/castdock/internal/storage"
@@ -104,7 +105,7 @@ func (f *fakeRepository) UpdateFeedPlaybackSpeed(_ context.Context, id int64, sp
 func newTestServer(t *testing.T, repository Repository) *Server {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	server, err := New(repository, nil, logger, 1024, 10, false)
+	server, err := New(repository, nil, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -331,12 +332,12 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 		DatabaseBytes: 2 << 20, LatestFeedScan: &latestScan,
 	}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	server, err := New(repository, nil, logger, 1024, 10, false, SystemConfiguration{
+	server, err := New(repository, nil, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10, SystemConfig: SystemConfiguration{
 		StartedAt: startedAt, ListenAddress: "0.0.0.0:8080", DatabasePath: "./data/castdock.db",
 		RefreshInterval: time.Hour, RefreshConcurrency: 4, HTTPTimeout: 20 * time.Second,
 		MaxFeedBytes: 32 << 20, MaxOPMLBytes: 5 << 20, MaxOPMLFeeds: 500,
-		LogLevel: "DEBUG", AccessLogEnabled: true,
-	})
+		LogLevel: "DEBUG", AccessLogEnabled: true, AuthenticationEnabled: true, SessionTTL: 30 * 24 * time.Hour,
+	}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -348,7 +349,7 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"System", "Read only", "Subscriptions", "<dd>12</dd>", "Total episodes", "<dd>345</dd>",
-		"2.0 MiB", "0.0.0.0:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "true",
+		"2.0 MiB", "0.0.0.0:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "Authentication enabled", "720h0m0s",
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("system page missing %q: %s", expected, response.Body.String())
@@ -491,7 +492,7 @@ func TestSavePlayback(t *testing.T) {
 	repository := &fakeRepository{}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	server, err := New(repository, nil, logger, 1024, 10, false)
+	server, err := New(repository, nil, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -518,7 +519,7 @@ func TestSavePlayback(t *testing.T) {
 func TestAccessLogCanBeEnabledIndependently(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	server, err := New(&fakeRepository{}, nil, logger, 1024, 10, true)
+	server, err := New(&fakeRepository{}, nil, logger, Options{MaxOPMLBytes: 1024, MaxOPMLFeeds: 10, AccessLog: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -529,6 +530,85 @@ func TestAccessLogCanBeEnabledIndependently(t *testing.T) {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("access log missing %q: %s", expected, logs.String())
 		}
+	}
+}
+
+func TestOptionalAuthenticationLoginSessionAndLogout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	authentication := authn.New("listener", "correct horse battery staple", time.Hour)
+	server, err := New(&fakeRepository{}, nil, logger, Options{
+		MaxOPMLBytes: 1024, MaxOPMLFeeds: 10, Authentication: authentication,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/", nil)
+	protectedResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(protectedResponse, protectedRequest)
+	if protectedResponse.Code != http.StatusSeeOther || !strings.HasPrefix(protectedResponse.Header().Get("Location"), "/login?next=") {
+		t.Fatalf("protected response: status=%d location=%q", protectedResponse.Code, protectedResponse.Header().Get("Location"))
+	}
+
+	loginPageRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/login?next=%2Fsystem", nil)
+	loginPageResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(loginPageResponse, loginPageRequest)
+	if loginPageResponse.Code != http.StatusOK || !strings.Contains(loginPageResponse.Body.String(), `name="username"`) || !strings.Contains(loginPageResponse.Body.String(), `name="password"`) {
+		t.Fatalf("login page: status=%d body=%s", loginPageResponse.Code, loginPageResponse.Body.String())
+	}
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "http://castdock.test/login", strings.NewReader("username=listener&password=correct+horse+battery+staple&next=%2Fsystem"))
+	loginRequest.Header.Set("Origin", "http://castdock.test")
+	loginRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusSeeOther || loginResponse.Header().Get("Location") != "/system" {
+		t.Fatalf("login response: status=%d location=%q body=%s", loginResponse.Code, loginResponse.Header().Get("Location"), loginResponse.Body.String())
+	}
+	cookies := loginResponse.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("session cookies = %#v", cookies)
+	}
+
+	authenticatedRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/", nil)
+	authenticatedRequest.AddCookie(cookies[0])
+	authenticatedResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(authenticatedResponse, authenticatedRequest)
+	if authenticatedResponse.Code != http.StatusOK || !strings.Contains(authenticatedResponse.Body.String(), "Sign out") {
+		t.Fatalf("authenticated response: status=%d body=%s", authenticatedResponse.Code, authenticatedResponse.Body.String())
+	}
+
+	logoutRequest := httptest.NewRequest(http.MethodPost, "http://castdock.test/logout", nil)
+	logoutRequest.Header.Set("Origin", "http://castdock.test")
+	logoutRequest.AddCookie(cookies[0])
+	logoutResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(logoutResponse, logoutRequest)
+	if logoutResponse.Code != http.StatusSeeOther || logoutResponse.Header().Get("Location") != "/login" || authentication.Valid(cookies[0].Value) {
+		t.Fatalf("logout response: status=%d location=%q", logoutResponse.Code, logoutResponse.Header().Get("Location"))
+	}
+}
+
+func TestAuthenticationLeavesHealthPublicAndProtectsAPI(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, err := New(&fakeRepository{}, nil, logger, Options{
+		MaxOPMLBytes: 1024, MaxOPMLFeeds: 10,
+		Authentication: authn.New("listener", "password", time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	healthRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/healthz", nil)
+	healthResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(healthResponse, healthRequest)
+	if healthResponse.Code != http.StatusOK {
+		t.Fatalf("health status = %d", healthResponse.Code)
+	}
+	apiRequest := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/queue/reorder", strings.NewReader(`{"episodeId":1,"targetPosition":1}`))
+	apiRequest.Header.Set("Origin", "http://castdock.test")
+	apiResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(apiResponse, apiRequest)
+	if apiResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated API status = %d", apiResponse.Code)
 	}
 }
 

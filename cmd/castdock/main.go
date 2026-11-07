@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rlommers/castdock/internal/auth"
 	"github.com/rlommers/castdock/internal/config"
 	"github.com/rlommers/castdock/internal/server"
 	"github.com/rlommers/castdock/internal/storage"
@@ -43,19 +44,28 @@ func run() error {
 
 	fetcher := syndication.NewFetcher(cfg.HTTPTimeout, cfg.MaxFeedBytes, cfg.AllowPrivateFeeds)
 	feedService := syndication.NewService(ctx, store, fetcher, logger, cfg.RefreshConcurrency)
-	webServer, err := server.New(store, feedService, logger, cfg.MaxOPMLBytes, cfg.MaxOPMLFeeds, cfg.AccessLogEnabled, server.SystemConfiguration{
-		StartedAt:          startedAt,
-		ListenAddress:      cfg.ListenAddr,
-		DatabasePath:       cfg.DatabasePath,
-		RefreshInterval:    cfg.RefreshInterval,
-		RefreshConcurrency: cfg.RefreshConcurrency,
-		HTTPTimeout:        cfg.HTTPTimeout,
-		MaxFeedBytes:       cfg.MaxFeedBytes,
-		MaxOPMLBytes:       cfg.MaxOPMLBytes,
-		MaxOPMLFeeds:       cfg.MaxOPMLFeeds,
-		AllowPrivateFeeds:  cfg.AllowPrivateFeeds,
-		LogLevel:           cfg.LogLevel.String(),
-		AccessLogEnabled:   cfg.AccessLogEnabled,
+	authentication := auth.New(cfg.AuthUsername, cfg.AuthPassword, cfg.SessionTTL)
+	webServer, err := server.New(store, feedService, logger, server.Options{
+		MaxOPMLBytes:   cfg.MaxOPMLBytes,
+		MaxOPMLFeeds:   cfg.MaxOPMLFeeds,
+		AccessLog:      cfg.AccessLogEnabled,
+		Authentication: authentication,
+		SystemConfig: server.SystemConfiguration{
+			StartedAt:             startedAt,
+			ListenAddress:         cfg.ListenAddr,
+			DatabasePath:          cfg.DatabasePath,
+			RefreshInterval:       cfg.RefreshInterval,
+			RefreshConcurrency:    cfg.RefreshConcurrency,
+			HTTPTimeout:           cfg.HTTPTimeout,
+			MaxFeedBytes:          cfg.MaxFeedBytes,
+			MaxOPMLBytes:          cfg.MaxOPMLBytes,
+			MaxOPMLFeeds:          cfg.MaxOPMLFeeds,
+			AllowPrivateFeeds:     cfg.AllowPrivateFeeds,
+			LogLevel:              cfg.LogLevel.String(),
+			AccessLogEnabled:      cfg.AccessLogEnabled,
+			AuthenticationEnabled: cfg.AuthenticationEnabled(),
+			SessionTTL:            cfg.SessionTTL,
+		},
 	})
 	if err != nil {
 		return err

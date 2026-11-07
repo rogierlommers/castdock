@@ -10,6 +10,7 @@ func TestLoadDefaults(t *testing.T) {
 		"CASTDOCK_LISTEN_ADDR", "CASTDOCK_DATABASE_PATH", "CASTDOCK_REFRESH_INTERVAL",
 		"CASTDOCK_HTTP_TIMEOUT", "CASTDOCK_MAX_FEED_BYTES", "CASTDOCK_MAX_OPML_BYTES",
 		"CASTDOCK_MAX_OPML_FEEDS", "CASTDOCK_REFRESH_CONCURRENCY", "CASTDOCK_ALLOW_PRIVATE_FEEDS", "CASTDOCK_ACCESS_LOG_ENABLED", "CASTDOCK_LOG_LEVEL",
+		"CASTDOCK_AUTH_USERNAME", "CASTDOCK_AUTH_PASSWORD", "CASTDOCK_SESSION_TTL",
 	} {
 		t.Setenv(name, "")
 	}
@@ -25,6 +26,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("CASTDOCK_REFRESH_CONCURRENCY", "4")
 	t.Setenv("CASTDOCK_ALLOW_PRIVATE_FEEDS", "false")
 	t.Setenv("CASTDOCK_ACCESS_LOG_ENABLED", "false")
+	t.Setenv("CASTDOCK_AUTH_USERNAME", "")
+	t.Setenv("CASTDOCK_AUTH_PASSWORD", "")
+	t.Setenv("CASTDOCK_SESSION_TTL", "720h")
 	t.Setenv("CASTDOCK_LOG_LEVEL", "info")
 
 	cfg, err := Load()
@@ -33,6 +37,17 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.RefreshInterval != time.Hour || cfg.HTTPTimeout != 20*time.Second {
 		t.Fatalf("unexpected durations: %+v", cfg)
+	}
+	if cfg.AuthenticationEnabled() || cfg.SessionTTL != 30*24*time.Hour {
+		t.Fatalf("unexpected authentication defaults: %+v", cfg)
+	}
+}
+
+func TestLoadRequiresBothAuthenticationCredentials(t *testing.T) {
+	t.Setenv("CASTDOCK_AUTH_USERNAME", "listener")
+	t.Setenv("CASTDOCK_AUTH_PASSWORD", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected incomplete authentication error")
 	}
 }
 
