@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -218,6 +219,41 @@ func TestEpisodeLifecycleAndQueueOrdering(t *testing.T) {
 	}
 	if statistics.FeedCount != 1 || statistics.EpisodeCount != 2 || statistics.QueuedCount != 0 || statistics.ArchivedCount != 2 || statistics.CompletedCount != 2 || statistics.DatabaseBytes <= 0 {
 		t.Fatalf("LibraryStatistics() = %+v", statistics)
+	}
+}
+
+func TestMarkEpisodePlayedCompactsQueueWhenIDsDifferFromQueueOrder(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "castdock.db"), discardLogger())
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	feed, _, err := store.AddFeed(ctx, "https://example.com/feed.xml")
+	if err != nil {
+		t.Fatalf("AddFeed() error = %v", err)
+	}
+	now := formatTime(time.Now())
+	for id, position := range []int{3, 2, 1} {
+		if _, err := store.db.ExecContext(ctx, `
+			INSERT INTO episodes(id, feed_id, guid, state, queue_position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			id+1, feed.ID, fmt.Sprintf("episode-%d", id+1), podcast.EpisodeStateQueued, position, now, now,
+		); err != nil {
+			t.Fatalf("insert queued episode %d: %v", id+1, err)
+		}
+	}
+
+	if err := store.MarkEpisodePlayed(ctx, 3); err != nil {
+		t.Fatalf("MarkEpisodePlayed() error = %v", err)
+	}
+	queued, err := store.QueuedEpisodes(ctx)
+	if err != nil {
+		t.Fatalf("QueuedEpisodes() error = %v", err)
+	}
+	if len(queued) != 2 || queued[0].ID != 2 || queued[0].QueuePosition == nil || *queued[0].QueuePosition != 1 || queued[1].ID != 1 || queued[1].QueuePosition == nil || *queued[1].QueuePosition != 2 {
+		t.Fatalf("QueuedEpisodes() positions = %+v", queued)
 	}
 }
 
