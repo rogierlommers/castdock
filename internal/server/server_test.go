@@ -172,6 +172,9 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("Content-Security-Policy is missing")
 	}
+	if got := response.Header().Get("Referrer-Policy"); got != "same-origin" {
+		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
+	}
 	if !strings.Contains(body, `href="https://github.com/rogierlommers/castdock"`) || !strings.Contains(body, "View on GitHub") {
 		t.Fatalf("GitHub repository link missing from layout: %s", body)
 	}
@@ -415,6 +418,17 @@ func TestMiddlewareAcceptsSameSiteWhenExactOriginMatches(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "http://services.hake-cod.ts.net:7007/library/import", nil)
 	request.Header.Set("Origin", "http://services.hake-cod.ts.net:7007")
 	request.Header.Set("Sec-Fetch-Site", "same-site")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMiddlewareAcceptsExactSameOriginRefererFallback(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	request := httptest.NewRequest(http.MethodPost, "http://services.hake-cod.ts.net:7007/library/import", nil)
+	request.Header.Set("Referer", "http://services.hake-cod.ts.net:7007/library")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusSeeOther {
