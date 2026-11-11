@@ -239,6 +239,35 @@ func TestUpdateFeedPlaybackSpeed(t *testing.T) {
 	}
 }
 
+func TestNativeAPIUpdateFeedPlaybackSpeed(t *testing.T) {
+	repository := &fakeRepository{}
+	server := newTestServer(t, repository)
+	request := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/feeds/7/playback-options", strings.NewReader(`{"playbackSpeed":1.75}`))
+	request.Header.Set("X-CastDock-Client", "ios")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || repository.speedFeedID != 7 || repository.playbackSpeed != 1.75 {
+		t.Fatalf("status=%d speed update=%d/%v body=%s", response.Code, repository.speedFeedID, repository.playbackSpeed, response.Body.String())
+	}
+}
+
+func TestNativeAPIUpdateFeedPlaybackSpeedRejectsInvalidPayload(t *testing.T) {
+	for _, body := range []string{`{}`, `{"playbackSpeed":3.5}`, `{"playbackSpeed":1.5,"unexpected":true}`} {
+		t.Run(body, func(t *testing.T) {
+			server := newTestServer(t, &fakeRepository{})
+			request := httptest.NewRequest(http.MethodPost, "http://castdock.test/api/feeds/7/playback-options", strings.NewReader(body))
+			request.Header.Set("X-CastDock-Client", "ios")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d, want %d, body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestRecentPageRendersEpisodeDetailsAndStatus(t *testing.T) {
 	published := time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC)
 	server := newTestServer(t, &fakeRepository{recent: []podcast.Episode{{

@@ -221,6 +221,40 @@ paths:
           description: Cross-origin write rejected
         "500":
           description: Internal server error
+  /api/feeds/{id}/playback-options:
+    post:
+      tags: [Playback]
+      summary: Update subscription playback speed from a native client
+      operationId: updateFeedPlaybackOptionsAPI
+      parameters:
+        - $ref: "#/components/parameters/FeedID"
+        - $ref: "#/components/parameters/ClientHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playbackSpeed]
+              properties:
+                playbackSpeed:
+                  type: number
+                  format: double
+                  minimum: 0.5
+                  maximum: 3.0
+      responses:
+        "204":
+          description: Playback speed updated
+        "400":
+          description: Invalid payload or playback speed
+        "401":
+          description: Authentication required
+        "403":
+          description: Cross-origin write rejected
+        "404":
+          description: Feed not found
+        "500":
+          description: Internal server error
   /episodes/{id}/played:
     post:
       tags: [Playback]
