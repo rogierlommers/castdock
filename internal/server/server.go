@@ -514,6 +514,7 @@ type apiEpisodeResponse struct {
 	PodcastTitle    string               `json:"podcastTitle"`
 	Title           string               `json:"title"`
 	Description     string               `json:"description"`
+	DescriptionHTML string               `json:"descriptionHtml"`
 	PublishedAt     *time.Time           `json:"publishedAt,omitempty"`
 	DurationSeconds int                  `json:"durationSeconds"`
 	EnclosureURL    string               `json:"enclosureUrl"`
@@ -535,7 +536,7 @@ func newAPIEpisode(episode podcast.Episode) apiEpisodeResponse {
 	}
 	return apiEpisodeResponse{
 		ID: episode.ID, FeedID: episode.FeedID, PodcastTitle: episode.FeedTitle,
-		Title: episode.Title, Description: episode.Description, PublishedAt: episode.PublishedAt,
+		Title: episode.Title, Description: episode.Description, DescriptionHTML: contenthtml.SanitizeShowNotes(episode.DescriptionHTML), PublishedAt: episode.PublishedAt,
 		DurationSeconds: episode.DurationSeconds, EnclosureURL: episode.EnclosureURL,
 		EnclosureType: episode.EnclosureType, ImageURL: imageURL, State: episode.State,
 		QueuePosition: episode.QueuePosition, PositionSeconds: episode.PositionSeconds,

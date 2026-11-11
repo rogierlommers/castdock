@@ -418,6 +418,9 @@ components:
         podcastTitle: {type: string}
         title: {type: string}
         description: {type: string}
+        descriptionHtml:
+          type: string
+          description: Sanitized publisher show-note HTML suitable for rich client rendering
         publishedAt: {type: string, format: date-time}
         durationSeconds: {type: integer}
         enclosureUrl: {type: string, format: uri}

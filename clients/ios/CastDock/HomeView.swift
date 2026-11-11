@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
@@ -110,17 +111,102 @@ private struct ExpandableEpisodeRow: View {
                 }
 
                 if showsNotes {
-                    Text(episode.description.isEmpty ? "No show notes available." : episode.description)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .transition(.opacity)
+                    if let html = episode.descriptionHtml, !html.isEmpty {
+                        HTMLShowNotesView(html: html)
+                            .transition(.opacity)
+                    } else {
+                        Text(episode.description.isEmpty ? "No show notes available." : episode.description)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .transition(.opacity)
+                    }
                 }
             }
         }
         .padding(.vertical, 2)
         .onChange(of: isExpanded) { _, expanded in
             if !expanded { showsNotes = false }
+        }
+    }
+}
+
+private struct HTMLShowNotesView: UIViewRepresentable {
+    let html: String
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.backgroundColor = .clear
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.adjustsFontForContentSizeCategory = true
+        textView.linkTextAttributes = [
+            .foregroundColor: UIColor.link,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
+        textView.delegate = context.coordinator
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        let renderKey = "\(dynamicTypeSize)-\(html)"
+        guard context.coordinator.renderKey != renderKey else { return }
+        context.coordinator.renderKey = renderKey
+
+        let showNotes = html.replacingOccurrences(
+            of: #"<img\b[^>]*>"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let fontSize = UIFont.preferredFont(forTextStyle: .callout).pointSize
+        let document = """
+        <style>
+        body { font-family: -apple-system; font-size: \(fontSize)px; line-height: 1.35; }
+        ul, ol { padding-left: 1.4em; }
+        </style>
+        \(showNotes)
+        """
+        guard let attributed = try? NSMutableAttributedString(
+            data: Data(document.utf8),
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue,
+            ],
+            documentAttributes: nil
+        ) else {
+            textView.text = showNotes
+            return
+        }
+        attributed.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: attributed.length))
+        textView.attributedText = attributed
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: size.height)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var renderKey = ""
+
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith URL: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            guard let scheme = URL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+            UIApplication.shared.open(URL)
+            return false
         }
     }
 }

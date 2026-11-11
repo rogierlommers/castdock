@@ -31,6 +31,7 @@ struct Episode: Decodable, Identifiable, Equatable {
     let podcastTitle: String
     let title: String
     let description: String
+    let descriptionHtml: String?
     let publishedAt: String?
     let durationSeconds: Int
     let enclosureUrl: String

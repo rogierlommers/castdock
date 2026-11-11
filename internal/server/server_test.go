@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -299,7 +300,7 @@ func TestSharedHomeAPIUsesCanonicalEpisodeState(t *testing.T) {
 	repository := &fakeRepository{
 		inbox: []podcast.Episode{{
 			ID: 31, FeedID: 4, FeedTitle: "Inbox podcast", FeedImageURL: "https://example.com/feed.jpg",
-			Title: "Inbox API episode", State: podcast.EpisodeStateInbox, FeedPlaybackSpeed: 1.5,
+			Title: "Inbox API episode", DescriptionHTML: `<ul><li>First</li></ul><p><a href="https://example.com">Details</a></p><script>bad()</script>`, State: podcast.EpisodeStateInbox, FeedPlaybackSpeed: 1.5,
 		}},
 		queued: []podcast.Episode{{
 			ID: 32, FeedID: 5, FeedTitle: "Queue podcast", ImageURL: "https://example.com/episode.jpg",
@@ -318,6 +319,13 @@ func TestSharedHomeAPIUsesCanonicalEpisodeState(t *testing.T) {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("home API missing %q: %s", expected, response.Body.String())
 		}
+	}
+	var home apiHomeResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &home); err != nil {
+		t.Fatalf("decode home API response: %v", err)
+	}
+	if got := home.Inbox[0].DescriptionHTML; !strings.Contains(got, "<ul><li>First</li></ul>") || !strings.Contains(got, `href="https://example.com"`) || strings.Contains(got, "<script") || strings.Contains(got, "bad()") {
+		t.Fatalf("descriptionHtml was not safely preserved: %q", got)
 	}
 }
 
