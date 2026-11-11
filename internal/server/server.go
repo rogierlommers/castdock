@@ -150,6 +150,7 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("POST /api/episodes/{id}/queue", server.apiQueueEpisode)
 	mux.HandleFunc("POST /api/episodes/{id}/archive", server.apiArchiveEpisode)
 	mux.HandleFunc("POST /api/episodes/{id}/played", server.apiMarkEpisodePlayed)
+	mux.HandleFunc("POST /api/feeds/{id}/playback-options", server.apiUpdateFeedPlaybackOptions)
 	mux.HandleFunc("GET /library", server.library)
 	mux.HandleFunc("POST /feeds", server.addFeed)
 	mux.HandleFunc("GET /feeds/{id}", server.feed)
@@ -619,6 +620,42 @@ func (s *Server) apiMarkEpisodePlayed(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type playbackOptionsRequest struct {
+	PlaybackSpeed float64 `json:"playbackSpeed"`
+}
+
+func (s *Server) apiUpdateFeedPlaybackOptions(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	var request playbackOptionsRequest
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid playback options payload", http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid playback options payload", http.StatusBadRequest)
+		return
+	}
+	if !podcast.ValidPlaybackSpeed(request.PlaybackSpeed) {
+		http.Error(w, "playback speed must be between 0.5 and 3.0", http.StatusBadRequest)
+		return
+	}
+	if err := s.repository.UpdateFeedPlaybackSpeed(r.Context(), id, request.PlaybackSpeed); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+	s.logger.Debug("feed playback options updated", "feed_id", id, "playback_speed", request.PlaybackSpeed, "client", r.Header.Get("X-CastDock-Client"))
 	w.WriteHeader(http.StatusNoContent)
 }
 

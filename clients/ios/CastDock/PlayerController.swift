@@ -7,13 +7,20 @@ final class PlayerController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
+    @Published private(set) var playbackRate: Double = 1
+    @Published private(set) var playbackRateError: String?
     @Published var errorMessage: String?
+
+    static let availablePlaybackRates: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
     private let player = AVPlayer()
     private var client: APIClient?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
-    private var configuredRate: Float = 1
+    private var speedUpdateTask: Task<Void, Never>?
+    private var speedUpdateGeneration = 0
+    private var confirmedPlaybackRate: Double = 1
+    private var pendingPlaybackRate: Double?
     private var lastPeriodicSync = Date.distantPast
 
     init() {
@@ -34,12 +41,18 @@ final class PlayerController: ObservableObject {
     }
 
     func load(_ episode: Episode, client: APIClient, autoplay: Bool = false) {
+        speedUpdateGeneration += 1
+        speedUpdateTask?.cancel()
+        speedUpdateTask = nil
+        pendingPlaybackRate = nil
         self.episode = episode
         self.client = client
         errorMessage = nil
+        playbackRateError = nil
         currentTime = episode.positionSeconds
         duration = Double(episode.durationSeconds)
-        configuredRate = Float(min(max(episode.playbackSpeed, 0.5), 3))
+        playbackRate = min(max(episode.playbackSpeed, 0.5), 3)
+        confirmedPlaybackRate = playbackRate
         lastPeriodicSync = .distantPast
         guard let url = episode.enclosureURL else {
             errorMessage = "This episode does not contain a playable audio URL."
@@ -63,7 +76,7 @@ final class PlayerController: ObservableObject {
 
     func play() {
         guard player.currentItem != nil else { return }
-        player.playImmediately(atRate: configuredRate)
+        player.playImmediately(atRate: Float(playbackRate))
         isPlaying = true
         updateNowPlaying()
     }
@@ -83,12 +96,59 @@ final class PlayerController: ObservableObject {
         Task { await sync() }
     }
 
+    func setPlaybackRate(_ rate: Double) {
+        let rate = min(max(rate, 0.5), 3)
+        guard rate != playbackRate else { return }
+        playbackRate = rate
+        if isPlaying { player.rate = Float(rate) }
+        updateNowPlaying()
+
+        guard let episode, let client else { return }
+        playbackRateError = nil
+        pendingPlaybackRate = rate
+        guard speedUpdateTask == nil else { return }
+        let generation = speedUpdateGeneration
+        speedUpdateTask = Task { [weak self] in
+            guard let self else { return }
+            await persistPlaybackRates(feedID: episode.feedId, client: client, generation: generation)
+        }
+    }
+
     func stop() {
+        speedUpdateGeneration += 1
+        speedUpdateTask?.cancel()
+        speedUpdateTask = nil
+        pendingPlaybackRate = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         episode = nil
         isPlaying = false
+        playbackRateError = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func persistPlaybackRates(feedID: Int64, client: APIClient, generation: Int) async {
+        defer {
+            if generation == speedUpdateGeneration { speedUpdateTask = nil }
+        }
+        while !Task.isCancelled, generation == speedUpdateGeneration, let rate = pendingPlaybackRate {
+            pendingPlaybackRate = nil
+            do {
+                try await client.updatePlaybackSpeed(feedID: feedID, speed: rate)
+                guard !Task.isCancelled, generation == speedUpdateGeneration else { return }
+                confirmedPlaybackRate = rate
+                playbackRateError = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, generation == speedUpdateGeneration else { return }
+                guard pendingPlaybackRate == nil else { continue }
+                playbackRate = confirmedPlaybackRate
+                if isPlaying { player.rate = Float(confirmedPlaybackRate) }
+                updateNowPlaying()
+                playbackRateError = error.localizedDescription
+            }
+        }
     }
 
     func sync() async {
@@ -150,7 +210,7 @@ final class PlayerController: ObservableObject {
             MPMediaItemPropertyAlbumTitle: episode.podcastTitle,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? configuredRate : 0
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Float(playbackRate) : 0
         ]
     }
 }

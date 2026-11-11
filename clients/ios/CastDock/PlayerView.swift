@@ -49,6 +49,7 @@ struct PlayerView: View {
         .navigationTitle("Now Playing")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: episodeID) {
+            guard player.episode?.id != episodeID else { return }
             guard let client = model.apiClient else { return }
             do { player.load(try await client.episode(id: episodeID), client: client) }
             catch { player.errorMessage = error.localizedDescription }

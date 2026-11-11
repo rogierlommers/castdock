@@ -85,6 +85,12 @@ actor APIClient {
         return try decoder.decode(PlaybackUpdateResponse.self, from: data)
     }
 
+    func updatePlaybackSpeed(feedID: Int64, speed: Double) async throws {
+        let body = try encoder.encode(["playbackSpeed": speed])
+        let (_, response) = try await request(path: "/api/feeds/\(feedID)/playback-options", method: "POST", body: body)
+        guard response.statusCode == 204 else { throw APIError.server(response.statusCode) }
+    }
+
     private func emptyAction(path: String) async throws {
         let (_, response) = try await request(path: path, method: "POST", body: Data())
         guard response.statusCode == 204 else { throw APIError.server(response.statusCode) }

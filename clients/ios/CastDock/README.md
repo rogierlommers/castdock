@@ -12,7 +12,7 @@ The first launch asks for a server URL and optional CastDock credentials. Connec
 
 - Inbox and Up Next
 - Queue, archive, and mark-played actions
-- Native AVPlayer streaming with subscription playback speed and ±15-second seeking
+- Native AVPlayer streaming with a Home-screen Now Playing section for play/pause, ±15-second seeking, and subscription playback speed
 - Five-second playback synchronization
 - Background audio, Now Playing metadata and lock-screen controls
 
