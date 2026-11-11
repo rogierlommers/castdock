@@ -63,6 +63,32 @@ final class AppModel: ObservableObject {
     func archive(_ episode: Episode) async { await mutate { try await $0.archive(id: episode.id) } }
     func markPlayed(_ episode: Episode) async { await mutate { try await $0.markPlayed(id: episode.id) } }
 
+    func queueAtTop(_ episode: Episode) async {
+        guard let apiClient else { return }
+        do {
+            try await apiClient.queue(id: episode.id)
+            try await apiClient.reorder(id: episode.id, position: 1)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refresh()
+    }
+
+    func playNow(_ episode: Episode) async {
+        if player.episode?.id == episode.id {
+            player.play()
+            return
+        }
+        guard let apiClient else { return }
+        await player.sync()
+        do {
+            player.load(try await apiClient.episode(id: episode.id), client: apiClient, autoplay: true)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func moveQueue(from offsets: IndexSet, to destination: Int) {
         guard let source = offsets.first, source != destination, source < upNext.count else { return }
         let episode = upNext[source]
