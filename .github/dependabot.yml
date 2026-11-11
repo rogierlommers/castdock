@@ -5,6 +5,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    assignees: [rogierlommers]
     open-pull-requests-limit: 3
     labels: [dependencies, go]
     commit-message:
@@ -18,6 +19,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    assignees: [rogierlommers]
     open-pull-requests-limit: 3
     labels: [dependencies, docker]
     commit-message:
@@ -31,6 +33,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    assignees: [rogierlommers]
     open-pull-requests-limit: 3
     labels: [dependencies, github-actions]
     commit-message:
