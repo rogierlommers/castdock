@@ -10,8 +10,7 @@ The first launch asks for a server URL and optional CastDock credentials. Connec
 
 ## MVP scope
 
-- Inbox and Up Next
-- Queue, archive, and mark-played actions
+- Expandable Inbox and Up Next rows with inline queue, play, archive, and show-note actions
 - Native AVPlayer streaming with a Home-screen Now Playing section for play/pause, ±15-second seeking, and subscription playback speed
 - Five-second playback synchronization
 - Background audio, Now Playing metadata and lock-screen controls
