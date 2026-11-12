@@ -9,6 +9,7 @@
     <p class="eyebrow">Now playing</p>
     <h1>{{.Episode.Title}}</h1>
     {{if .Episode.PublishedAt}}<p>{{date .Episode.PublishedAt}}</p>{{end}}
+    {{if .Episode.EnclosureURL}}<p id="play-time-left" class="play-time-left" hidden></p>{{end}}
     <p class="state-badge">{{.Episode.State}}</p>
     <div class="actions">
       {{if eq .Episode.State "queued"}}

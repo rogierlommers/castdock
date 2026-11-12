@@ -3,6 +3,7 @@
 
   const player = document.getElementById("player");
   const status = document.getElementById("sync-status");
+  const playTimeLeft = document.getElementById("play-time-left");
   const rewindButton = document.getElementById("rewind-15");
   const forwardButton = document.getElementById("forward-15");
   if (!player) return;
@@ -12,6 +13,31 @@
   const configuredPlaybackRate = Number(player.dataset.playbackRate || 1);
   let restored = false;
   let saveChain = Promise.resolve({});
+
+  function formatPlayTime(seconds) {
+    const totalMinutes = Math.ceil(seconds / 60);
+    if (totalMinutes < 60) return `${totalMinutes} ${totalMinutes === 1 ? "minute" : "minutes"}`;
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const hourLabel = `${hours} ${hours === 1 ? "hour" : "hours"}`;
+    if (minutes === 0) return hourLabel;
+    return `${hourLabel} ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+
+  function updatePlayTimeLeft() {
+    const duration = player.duration;
+    const currentTime = player.currentTime;
+    const playbackRate = player.playbackRate;
+    if (!playTimeLeft || !Number.isFinite(duration) || !Number.isFinite(currentTime) || !Number.isFinite(playbackRate) || playbackRate <= 0) {
+      if (playTimeLeft) playTimeLeft.hidden = true;
+      return;
+    }
+
+    const secondsLeft = Math.max(0, duration - currentTime) / playbackRate;
+    playTimeLeft.textContent = `Play time left: ${formatPlayTime(secondsLeft)}`;
+    playTimeLeft.hidden = false;
+  }
 
   const payload = () => ({
     position: Number.isFinite(player.currentTime) ? player.currentTime : 0,
@@ -62,10 +88,14 @@
     restored = true;
     rewindButton.disabled = false;
     forwardButton.disabled = false;
+    updatePlayTimeLeft();
   }
 
   player.addEventListener("loadedmetadata", handleLoadedMetadata);
   if (player.readyState >= 1) handleLoadedMetadata();
+  for (const event of ["timeupdate", "durationchange", "ratechange"]) {
+    player.addEventListener(event, updatePlayTimeLeft);
+  }
 
   function seekBy(seconds) {
     const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
