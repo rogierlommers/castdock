@@ -119,9 +119,11 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	server := newTestServer(t, &fakeRepository{
 		inbox: []podcast.Episode{{
 			ID: 11, Title: "Inbox episode", FeedTitle: "Example podcast", State: podcast.EpisodeStateInbox,
+			DurationSeconds: 5400, FeedPlaybackSpeed: 1.5,
 		}},
 		queued: []podcast.Episode{{
 			ID: 12, Title: "Queued at home", FeedTitle: "Example podcast", FeedImageURL: "https://example.com/feed-cover.jpg", State: podcast.EpisodeStateQueued, QueuePosition: &position,
+			DurationSeconds: 3600, PositionSeconds: 900, FeedPlaybackSpeed: 1,
 		}, {
 			ID: 13, Title: "Queued with episode art", FeedTitle: "Example podcast", ImageURL: "https://example.com/episode-cover.jpg", FeedImageURL: "https://example.com/unused-feed-cover.jpg", State: podcast.EpisodeStateQueued, QueuePosition: &secondPosition,
 		}},
@@ -144,6 +146,14 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	}
 	if !strings.Contains(body, "Queued at home") || !strings.Contains(body, "/episodes/12/queue/remove") {
 		t.Fatalf("landing page queue actions missing: %s", body)
+	}
+	for _, expected := range []string{"Play time left: 1 hour", "Play time left: 45 minutes"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("landing page play-time estimate missing %q: %s", expected, body)
+		}
+	}
+	if strings.Count(body, "Play time left:") != 2 {
+		t.Fatalf("landing page should omit play time when duration is unknown: %s", body)
 	}
 	for _, expected := range []string{"feed-cover.jpg", "episode-cover.jpg"} {
 		if !strings.Contains(body, expected) {
@@ -185,6 +195,29 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	}
 	if !strings.Contains(body, `<a class="brand" href="/"><img src="/static/favicon.svg"`) {
 		t.Fatalf("favicon missing from site header brand: %s", body)
+	}
+}
+
+func TestEpisodePlayTimeLeft(t *testing.T) {
+	tests := []struct {
+		name    string
+		episode podcast.Episode
+		want    string
+	}{
+		{name: "uses playback speed", episode: podcast.Episode{DurationSeconds: 5400, FeedPlaybackSpeed: 1.5}, want: "1 hour"},
+		{name: "subtracts saved position", episode: podcast.Episode{DurationSeconds: 5440, PositionSeconds: 610, FeedPlaybackSpeed: 1}, want: "1 hour 21 minutes"},
+		{name: "rounds up partial minute", episode: podcast.Episode{DurationSeconds: 60, PositionSeconds: 1, FeedPlaybackSpeed: 1}, want: "1 minute"},
+		{name: "omits unknown duration", episode: podcast.Episode{FeedPlaybackSpeed: 1}, want: ""},
+		{name: "omits invalid speed", episode: podcast.Episode{DurationSeconds: 60}, want: ""},
+		{name: "omits completed episode", episode: podcast.Episode{DurationSeconds: 60, FeedPlaybackSpeed: 1, Completed: true}, want: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := episodePlayTimeLeft(test.episode); got != test.want {
+				t.Fatalf("episodePlayTimeLeft() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

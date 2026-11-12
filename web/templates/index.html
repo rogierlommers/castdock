@@ -20,7 +20,7 @@
 <div class="episode-list inbox-list">
   {{range .InboxEpisodes}}
   <article class="episode-row episode-row-actions">
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
     <div class="episode-actions">
       <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="/"><button type="submit">Add to Up Next</button></form>
       <form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Archive</button></form>
@@ -46,7 +46,7 @@
     <a class="queue-art" href="/episodes/{{.ID}}">
       {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else if .FeedImageURL}}<img src="{{.FeedImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
     </a>
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p></a>
+    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
     <div class="queue-actions">
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="up"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} up">↑</button></form>
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="down"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} down">↓</button></form>

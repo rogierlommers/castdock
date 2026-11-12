@@ -226,7 +226,8 @@ func parseTemplates() (map[string]*template.Template, error) {
 			}
 			return fmt.Sprintf("%d:%02d", total/60, total%60)
 		},
-		"queryEscape": url.QueryEscape,
+		"playTimeLeft": episodePlayTimeLeft,
+		"queryEscape":  url.QueryEscape,
 		"relativeTime": func(value *time.Time) string {
 			return relativeTime(value, time.Now())
 		},
@@ -252,6 +253,34 @@ func parseTemplates() (map[string]*template.Template, error) {
 		result[name] = parsed
 	}
 	return result, nil
+}
+
+func episodePlayTimeLeft(episode podcast.Episode) string {
+	if episode.Completed || episode.DurationSeconds <= 0 || !podcast.ValidPlaybackSpeed(episode.FeedPlaybackSpeed) ||
+		math.IsNaN(episode.PositionSeconds) || math.IsInf(episode.PositionSeconds, 0) || episode.PositionSeconds < 0 {
+		return ""
+	}
+
+	secondsLeft := math.Max(0, float64(episode.DurationSeconds)-episode.PositionSeconds) / episode.FeedPlaybackSpeed
+	totalMinutes := int(math.Ceil(secondsLeft / 60))
+	if totalMinutes < 60 {
+		return fmt.Sprintf("%d %s", totalMinutes, pluralize(totalMinutes, "minute", "minutes"))
+	}
+
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+	formatted := fmt.Sprintf("%d %s", hours, pluralize(hours, "hour", "hours"))
+	if minutes > 0 {
+		formatted += fmt.Sprintf(" %d %s", minutes, pluralize(minutes, "minute", "minutes"))
+	}
+	return formatted
+}
+
+func pluralize(value int, singular, plural string) string {
+	if value == 1 {
+		return singular
+	}
+	return plural
 }
 
 func (s *Server) middleware(next http.Handler) http.Handler {
