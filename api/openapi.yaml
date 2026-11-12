@@ -32,6 +32,20 @@ paths:
                 example: "ok\n"
         "503":
           description: Database is unavailable
+  /system/network-events/stream:
+    get:
+      tags: [System]
+      summary: Stream recent client network event snapshots
+      operationId: streamNetworkEvents
+      responses:
+        "200":
+          description: Server-Sent Events stream containing newest-first snapshots
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "303":
+          description: Authentication required; redirects to login
   /login:
     get:
       security: []

@@ -10,17 +10,18 @@ import (
 const networkEventLimit = 50
 
 type networkEvent struct {
-	OccurredAt  time.Time
-	Client      string
-	Description string
-	Method      string
-	Path        string
-	Status      int
+	OccurredAt  time.Time `json:"occurredAt"`
+	Client      string    `json:"client"`
+	Description string    `json:"description"`
+	Method      string    `json:"method"`
+	Path        string    `json:"path"`
+	Status      int       `json:"status"`
 }
 
 type networkEventStore struct {
-	mu     sync.RWMutex
-	events []networkEvent
+	mu          sync.RWMutex
+	events      []networkEvent
+	subscribers map[chan struct{}]struct{}
 }
 
 func (s *networkEventStore) record(event networkEvent) {
@@ -31,6 +32,12 @@ func (s *networkEventStore) record(event networkEvent) {
 	if len(s.events) > networkEventLimit {
 		copy(s.events, s.events[len(s.events)-networkEventLimit:])
 		s.events = s.events[:networkEventLimit]
+	}
+	for subscriber := range s.subscribers {
+		select {
+		case subscriber <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -43,6 +50,21 @@ func (s *networkEventStore) recent() []networkEvent {
 		recent[index] = s.events[len(s.events)-1-index]
 	}
 	return recent
+}
+
+func (s *networkEventStore) subscribe() (<-chan struct{}, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.subscribers == nil {
+		s.subscribers = make(map[chan struct{}]struct{})
+	}
+	updates := make(chan struct{}, 1)
+	s.subscribers[updates] = struct{}{}
+	return updates, func() {
+		s.mu.Lock()
+		delete(s.subscribers, updates)
+		s.mu.Unlock()
+	}
 }
 
 func isClientNetworkRequest(r *http.Request) bool {
