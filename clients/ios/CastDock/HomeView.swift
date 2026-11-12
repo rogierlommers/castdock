@@ -101,7 +101,7 @@ private struct ExpandableEpisodeRow: View {
                         .controlSize(.small)
                     }
                     Button {
-                        withAnimation { showsNotes.toggle() }
+                        showsNotes.toggle()
                     } label: {
                         Label(showsNotes ? "Hide shownotes" : "Display shownotes", systemImage: "doc.text")
                             .frame(maxWidth: .infinity)
@@ -113,13 +113,11 @@ private struct ExpandableEpisodeRow: View {
                 if showsNotes {
                     if let html = episode.descriptionHtml, !html.isEmpty {
                         HTMLShowNotesView(html: html)
-                            .transition(.opacity)
                     } else {
                         Text(episode.description.isEmpty ? "No show notes available." : episode.description)
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
-                            .transition(.opacity)
                     }
                 }
             }
@@ -200,13 +198,12 @@ private struct HTMLShowNotesView: UIViewRepresentable {
 
         func textView(
             _ textView: UITextView,
-            shouldInteractWith URL: URL,
-            in characterRange: NSRange,
-            interaction: UITextItemInteraction
-        ) -> Bool {
-            guard let scheme = URL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
-            UIApplication.shared.open(URL)
-            return false
+            primaryActionFor textItem: UITextItem,
+            defaultAction: UIAction
+        ) -> UIAction? {
+            guard case .link(let url) = textItem.content else { return defaultAction }
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+            return UIAction { _ in UIApplication.shared.open(url) }
         }
     }
 }
@@ -232,7 +229,9 @@ private struct NowPlayingSection: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(episode.title).font(.headline).lineLimit(2)
                         Text(episode.podcastTitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        ProgressView(value: player.currentTime, total: max(player.duration, 1))
+                        let total = player.duration.isFinite ? max(player.duration, 1) : 1
+                        let position = player.currentTime.isFinite ? min(max(player.currentTime, 0), total) : 0
+                        ProgressView(value: position, total: total)
                     }
                 }
 

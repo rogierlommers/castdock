@@ -16,7 +16,8 @@ struct EpisodeRow: View {
                 Text(episode.title).font(.headline).lineLimit(2)
                 Text(episode.podcastTitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 if episode.positionSeconds > 0 && !episode.completed {
-                    ProgressView(value: episode.positionSeconds, total: max(Double(episode.durationSeconds), 1))
+                    let total = max(Double(episode.durationSeconds), 1)
+                    ProgressView(value: min(episode.positionSeconds, total), total: total)
                 }
             }
         }
