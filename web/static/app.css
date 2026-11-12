@@ -56,7 +56,7 @@ nav { display: flex; gap: 1.2rem; } nav a { color: var(--muted); font-weight: 65
 .episode-list { overflow: hidden; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
 .episode-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); text-decoration: none; }
 .episode-row:last-child { border-bottom: 0; }.episode-row:hover { background: color-mix(in srgb, var(--surface) 80%, var(--accent) 4%); }
-.episode-row h3 { margin: 0; }.episode-row p { margin: .2rem 0 0; color: var(--muted); }
+.episode-link h3 { margin: 0; line-height: 1.25; }.episode-link p { margin: .1rem 0 0; color: var(--muted); line-height: 1.35; }
 .episode-row-actions { flex-wrap: wrap; }
 .episode-link { min-width: 12rem; flex: 1; text-decoration: none; }
 .episode-actions, .queue-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
