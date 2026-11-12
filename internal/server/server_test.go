@@ -357,7 +357,7 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	}
 	for _, expected := range []string{
 		`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`,
-		`id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `data-playback-rate="1.5"`, `/static/player.js`,
+		`id="play-time-left"`, `id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `data-playback-rate="1.5"`, `/static/player.js`,
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("episode page show-notes boundary missing %q: %s", expected, response.Body.String())
@@ -365,13 +365,16 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	}
 }
 
-func TestPlayerScriptSeeksFifteenSecondsWithBounds(t *testing.T) {
+func TestPlayerScriptSupportsPlaybackShortcutsAndTimeLeft(t *testing.T) {
 	script, err := webassets.Files.ReadFile("static/player.js")
 	if err != nil {
 		t.Fatalf("read player script: %v", err)
 	}
 	contents := string(script)
-	for _, expected := range []string{"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound", "player.playbackRate = configuredPlaybackRate"} {
+	for _, expected := range []string{
+		"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound", "player.playbackRate = configuredPlaybackRate",
+		"Play time left:", "duration - currentTime", "/ playbackRate", `"timeupdate", "durationchange", "ratechange"`,
+	} {
 		if !strings.Contains(contents, expected) {
 			t.Fatalf("player script missing %q", expected)
 		}
