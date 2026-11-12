@@ -176,6 +176,7 @@ func New(repository Repository, service *syndication.Service, logger *slog.Logge
 	mux.HandleFunc("GET /recent", server.recent)
 	mux.HandleFunc("GET /history", server.playHistory)
 	mux.HandleFunc("GET /system", server.system)
+	mux.HandleFunc("GET /system/network-events/stream", server.networkEventsStream)
 	mux.HandleFunc("POST /api/episodes/{id}/playback", server.savePlayback)
 	mux.HandleFunc("GET /healthz", server.health)
 	openAPI, err := apidocs.Files.ReadFile("openapi.yaml")
@@ -464,6 +465,15 @@ func (w *responseMetrics) Write(contents []byte) (int, error) {
 	written, err := w.ResponseWriter.Write(contents)
 	w.bytes += written
 	return written, err
+}
+
+func (w *responseMetrics) Flush() {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func sameOrigin(r *http.Request) bool {
@@ -937,6 +947,52 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		AppVersion: applicationVersion(), GoVersion: runtime.Version(),
 		Uptime: formatUptime(time.Since(s.systemConfig.StartedAt)), NetworkEvents: s.networkEvents.recent(),
 	})
+}
+
+func (s *Server) networkEventsStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	updates, unsubscribe := s.networkEvents.subscribe()
+	defer unsubscribe()
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+	writeSnapshot := func() bool {
+		payload, err := json.Marshal(s.networkEvents.recent())
+		if err != nil {
+			s.logger.Error("encode network event stream", "error", err)
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: network-events\ndata: %s\n\n", payload); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	if !writeSnapshot() {
+		return
+	}
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-updates:
+			if !writeSnapshot() {
+				return
+			}
+		case <-keepalive.C:
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 func applicationVersion() string {

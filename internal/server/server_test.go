@@ -427,6 +427,7 @@ func TestSystemPageRendersAllowListedConfigurationAndStatistics(t *testing.T) {
 		"System", "Read only", "Subscriptions", "<dd>12</dd>", "Total episodes", "<dd>345</dd>",
 		"2.0 MiB", "0.0.0.0:8080", "./data/castdock.db", "32.0 MiB", "DEBUG", "Authentication enabled", "720h0m0s",
 		"Last network events", "No client network events recorded since startup.",
+		"network-events-status", "Connecting", "/static/system-events.js",
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("system page missing %q: %s", expected, response.Body.String())
@@ -477,6 +478,50 @@ func TestNetworkEventStoreRetainsLatestFiftyEvents(t *testing.T) {
 	}
 	if events[0].Status != networkEventLimit || events[len(events)-1].Status != 1 {
 		t.Fatalf("retained statuses run from %d to %d, want %d to 1", events[0].Status, events[len(events)-1].Status, networkEventLimit)
+	}
+}
+
+func TestNetworkEventStoreNotifiesSubscribers(t *testing.T) {
+	store := &networkEventStore{}
+	updates, unsubscribe := store.subscribe()
+	defer unsubscribe()
+	store.record(networkEvent{Description: "Home synchronized"})
+	select {
+	case <-updates:
+	default:
+		t.Fatal("subscriber was not notified")
+	}
+}
+
+type cancelOnFlushRecorder struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+}
+
+func (r *cancelOnFlushRecorder) Flush() {
+	r.ResponseRecorder.Flush()
+	r.cancel()
+}
+
+func TestNetworkEventStreamSendsInitialSnapshot(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	server.networkEvents.record(networkEvent{
+		OccurredAt: time.Date(2026, 11, 12, 8, 0, 0, 0, time.UTC),
+		Client:     "ios", Description: "Home synchronized", Method: http.MethodGet,
+		Path: "/api/home", Status: http.StatusOK,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	response := &cancelOnFlushRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/system/network-events/stream", nil).WithContext(ctx)
+	server.Handler().ServeHTTP(response, request)
+
+	if got := response.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	for _, expected := range []string{`event: network-events`, `"description":"Home synchronized"`, `"path":"/api/home"`} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("stream missing %q: %s", expected, response.Body.String())
+		}
 	}
 }
 
@@ -732,6 +777,12 @@ func TestAuthenticationLeavesHealthPublicAndProtectsAPI(t *testing.T) {
 	server.Handler().ServeHTTP(apiResponse, apiRequest)
 	if apiResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated API status = %d", apiResponse.Code)
+	}
+	streamRequest := httptest.NewRequest(http.MethodGet, "http://castdock.test/system/network-events/stream", nil)
+	streamResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(streamResponse, streamRequest)
+	if streamResponse.Code != http.StatusSeeOther || !strings.HasPrefix(streamResponse.Header().Get("Location"), "/login?") {
+		t.Fatalf("unauthenticated stream status=%d location=%q", streamResponse.Code, streamResponse.Header().Get("Location"))
 	}
 }
 

@@ -1,6 +1,7 @@
 ---
 title: Bounded client network history for operator diagnostics
 date: 2026-11-07
+last_updated: 2026-11-12
 category: design-patterns
 module: HTTP server diagnostics
 problem_type: design_pattern
@@ -30,6 +31,18 @@ Keep the event deliberately smaller than an access log:
 - copy the history under a read lock before rendering so templates do not observe concurrent mutation;
 - render through `html/template` so the client-provided label and request path remain escaped.
 
+For live delivery, publish a coalesced non-blocking signal when the store changes
+rather than sending event payloads through subscriber channels. Each subscriber
+reads a fresh bounded snapshot after receiving the signal, so a slow browser
+cannot block request logging or accumulate an unbounded queue. Send an initial
+snapshot immediately, keep the Server-Sent Events connection alive through
+idle periods, and unsubscribe when the request context is canceled.
+
+Keep the server-rendered list as a no-JavaScript fallback. The browser should
+construct refreshed rows with DOM `textContent`, not `innerHTML`, because client
+labels and request paths remain untrusted display values. Authentication stays
+on the same-origin stream route through the existing session middleware.
+
 Client-request detection should include both API routes and requests carrying the native client header. The latter matters for native health checks outside the `/api/` namespace. Exclude documentation endpoints that happen to live under `/api/` but are not application-client traffic.
 
 ## Why This Matters
@@ -51,3 +64,4 @@ For `POST /api/episodes/42/playback`, retain a description such as `Playback tim
 - `internal/server/network_events.go`
 - `internal/server/server.go`
 - `web/templates/system.html`
+- `web/static/system-events.js`

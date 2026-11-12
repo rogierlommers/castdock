@@ -30,7 +30,8 @@
 </section>
 
 <section class="system-section" aria-labelledby="network-events-heading">
-  <div class="section-heading compact-heading"><div><p class="eyebrow">Current process</p><h2 id="network-events-heading">Last network events</h2><p>Most recent client requests, newest first. Events are cleared when CastDock restarts.</p></div></div>
+  <div class="section-heading compact-heading"><div><p class="eyebrow">Current process</p><h2 id="network-events-heading">Last network events</h2><p>Most recent client requests, newest first. Events are cleared when CastDock restarts.</p></div><span class="read-only-badge" id="network-events-status" role="status">Connecting</span></div>
+  <div id="network-events-content" data-stream-url="/system/network-events/stream">
   {{if .NetworkEvents}}
   <ol class="network-event-list">
     {{range .NetworkEvents}}
@@ -43,6 +44,7 @@
   {{else}}
   <p class="empty-state">No client network events recorded since startup.</p>
   {{end}}
+  </div>
 </section>
 
 <section class="system-section" aria-labelledby="configuration-heading">
@@ -63,5 +65,6 @@
     <div><dt>Session lifetime</dt><dd>{{.SystemConfig.SessionTTL}}</dd></div>
   </dl>
 </section>
+<script src="/static/system-events.js" defer></script>
 {{template "footer" .}}
 {{end}}
