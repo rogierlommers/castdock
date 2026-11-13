@@ -18,7 +18,9 @@ struct CastDockApp: App {
             .tint(.orange)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active {
+            if phase == .active {
+                Task { await model.refresh() }
+            } else {
                 Task { await model.player.sync() }
             }
         }

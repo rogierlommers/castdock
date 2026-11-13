@@ -25,14 +25,19 @@ actor APIClient {
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var reauthenticationTask: Task<Void, Error>?
 
-    init(configuration: ServerConfiguration) {
+    init(configuration: ServerConfiguration, session: URLSession? = nil) {
         self.configuration = configuration
-        let sessionConfiguration = URLSessionConfiguration.default
-        sessionConfiguration.httpCookieStorage = .shared
-        sessionConfiguration.httpShouldSetCookies = true
-        sessionConfiguration.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: sessionConfiguration)
+        if let session {
+            self.session = session
+        } else {
+            let sessionConfiguration = URLSessionConfiguration.default
+            sessionConfiguration.httpCookieStorage = .shared
+            sessionConfiguration.httpShouldSetCookies = true
+            sessionConfiguration.timeoutIntervalForRequest = 30
+            self.session = URLSession(configuration: sessionConfiguration)
+        }
         encoder.dateEncodingStrategy = .iso8601
     }
 
@@ -56,14 +61,13 @@ actor APIClient {
     }
 
     func home() async throws -> HomeResponse {
-        let (data, response) = try await request(path: "/api/home")
-        if response.statusCode == 401 { throw APIError.unauthorized }
+        let (data, response) = try await authenticatedRequest(path: "/api/home")
         guard response.statusCode == 200 else { throw APIError.server(response.statusCode) }
         return try decoder.decode(HomeResponse.self, from: data)
     }
 
     func episode(id: Int64) async throws -> Episode {
-        let (data, response) = try await request(path: "/api/episodes/\(id)")
+        let (data, response) = try await authenticatedRequest(path: "/api/episodes/\(id)")
         guard response.statusCode == 200 else { throw APIError.server(response.statusCode) }
         return try decoder.decode(Episode.self, from: data)
     }
@@ -74,26 +78,50 @@ actor APIClient {
 
     func reorder(id: Int64, position: Int) async throws {
         let body = try encoder.encode(QueueReorder(episodeId: id, targetPosition: position))
-        let (_, response) = try await request(path: "/api/queue/reorder", method: "POST", body: body)
+        let (_, response) = try await authenticatedRequest(path: "/api/queue/reorder", method: "POST", body: body)
         guard response.statusCode == 204 else { throw APIError.server(response.statusCode) }
     }
 
     func savePlayback(episodeID: Int64, update: PlaybackUpdate) async throws -> PlaybackUpdateResponse {
         let body = try encoder.encode(update)
-        let (data, response) = try await request(path: "/api/episodes/\(episodeID)/playback", method: "POST", body: body)
+        let (data, response) = try await authenticatedRequest(path: "/api/episodes/\(episodeID)/playback", method: "POST", body: body)
         guard response.statusCode == 200 else { throw APIError.server(response.statusCode) }
         return try decoder.decode(PlaybackUpdateResponse.self, from: data)
     }
 
     func updatePlaybackSpeed(feedID: Int64, speed: Double) async throws {
         let body = try encoder.encode(["playbackSpeed": speed])
-        let (_, response) = try await request(path: "/api/feeds/\(feedID)/playback-options", method: "POST", body: body)
+        let (_, response) = try await authenticatedRequest(path: "/api/feeds/\(feedID)/playback-options", method: "POST", body: body)
         guard response.statusCode == 204 else { throw APIError.server(response.statusCode) }
     }
 
     private func emptyAction(path: String) async throws {
-        let (_, response) = try await request(path: path, method: "POST", body: Data())
+        let (_, response) = try await authenticatedRequest(path: path, method: "POST", body: Data())
         guard response.statusCode == 204 else { throw APIError.server(response.statusCode) }
+    }
+
+    private func authenticatedRequest(
+        path: String,
+        method: String = "GET",
+        body: Data? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let firstResponse = try await request(path: path, method: method, body: body)
+        guard firstResponse.1.statusCode == 401 else { return firstResponse }
+
+        try await reauthenticate()
+        let retryResponse = try await request(path: path, method: method, body: body)
+        if retryResponse.1.statusCode == 401 { throw APIError.unauthorized }
+        return retryResponse
+    }
+
+    private func reauthenticate() async throws {
+        if let reauthenticationTask {
+            return try await reauthenticationTask.value
+        }
+        let task = Task { [self] in try await login() }
+        reauthenticationTask = task
+        defer { reauthenticationTask = nil }
+        try await task.value
     }
 
     private func request(path: String, method: String = "GET", body: Data? = nil) async throws -> (Data, HTTPURLResponse) {

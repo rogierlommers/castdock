@@ -4,6 +4,9 @@ import UIKit
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
     @State private var expandedEpisodeID: Int64?
+    @State private var showsSettings = false
+    @State private var isSyncing = false
+    @State private var showsSyncSuccess = false
 
     var body: some View {
         NavigationStack {
@@ -11,24 +14,37 @@ struct HomeView: View {
                 if let error = model.errorMessage {
                     Section { Text(error).foregroundStyle(.red) }
                 }
-                NowPlayingSection(player: model.player)
+                NowPlayingSection(
+                    player: model.player,
+                    artworkURL: model.player.episode.flatMap { model.artworkURL(for: $0) }
+                )
                 Section("Inbox · \(model.inbox.count)") {
                     if model.inbox.isEmpty { ContentUnavailableView("Inbox zero", systemImage: "tray") }
                     ForEach(model.inbox) { episode in
-                        ExpandableEpisodeRow(episode: episode, isExpanded: expansionBinding(for: episode.id), actions: [
-                            EpisodeAction(title: "To top of queue", systemImage: "arrow.up.to.line") { Task { await model.queueAtTop(episode) } },
-                            EpisodeAction(title: "To bottom of queue", systemImage: "arrow.down.to.line") { Task { await model.queue(episode) } },
-                            EpisodeAction(title: "Archive", systemImage: "archivebox") { Task { await model.archive(episode) } },
-                        ])
+                        ExpandableEpisodeRow(
+                            episode: episode,
+                            artworkURL: model.artworkURL(for: episode),
+                            isExpanded: expansionBinding(for: episode.id),
+                            actions: [
+                                EpisodeAction(title: "To top of queue", systemImage: "arrow.up.to.line") { Task { await model.queueAtTop(episode) } },
+                                EpisodeAction(title: "To bottom of queue", systemImage: "arrow.down.to.line") { Task { await model.queue(episode) } },
+                                EpisodeAction(title: "Archive", systemImage: "archivebox") { Task { await model.archive(episode) } },
+                            ]
+                        )
                     }
                 }
                 Section("Up Next · \(model.upNext.count)") {
                     if model.upNext.isEmpty { ContentUnavailableView("Nothing queued", systemImage: "text.line.first.and.arrowtriangle.forward") }
                     ForEach(model.upNext) { episode in
-                        ExpandableEpisodeRow(episode: episode, isExpanded: expansionBinding(for: episode.id), actions: [
-                            EpisodeAction(title: "Play now", systemImage: "play.fill") { Task { await model.playNow(episode) } },
-                            EpisodeAction(title: "Archive", systemImage: "archivebox") { Task { await model.archive(episode) } },
-                        ])
+                        ExpandableEpisodeRow(
+                            episode: episode,
+                            artworkURL: model.artworkURL(for: episode),
+                            isExpanded: expansionBinding(for: episode.id),
+                            actions: [
+                                EpisodeAction(title: "Play now", systemImage: "play.fill") { Task { await model.playNow(episode) } },
+                                EpisodeAction(title: "Archive", systemImage: "archivebox") { Task { await model.archive(episode) } },
+                            ]
+                        )
                     }
                     .onMove(perform: model.moveQueue)
                 }
@@ -36,15 +52,33 @@ struct HomeView: View {
             .navigationTitle("CastDock")
             .refreshable { await model.refresh() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    EditButton()
+                    Button("Sync") {
+                        Task {
+                            isSyncing = true
+                            let succeeded = await model.syncNow()
+                            isSyncing = false
+                            if succeeded { showsSyncSuccess = true }
+                        }
+                    }
+                    .disabled(isSyncing)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Disconnect", role: .destructive) { model.disconnect() }
-                    } label: { Image(systemName: "ellipsis.circle") }
+                    Button { showsSettings = true } label: { Image(systemName: "line.3.horizontal") }
+                        .accessibilityLabel("Settings")
                 }
             }
             .overlay { if model.isLoading && model.inbox.isEmpty && model.upNext.isEmpty { ProgressView() } }
             .task { await model.refresh() }
+            .fullScreenCover(isPresented: $showsSettings) {
+                SettingsView().environmentObject(model)
+            }
+            .alert("Sync succeeded", isPresented: $showsSyncSuccess) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("The server responded successfully and the latest Inbox and Up Next data was loaded.")
+            }
         }
     }
 
@@ -66,12 +100,13 @@ private struct EpisodeAction: Identifiable {
 
 private struct ExpandableEpisodeRow: View {
     let episode: Episode
+    let artworkURL: URL?
     @Binding var isExpanded: Bool
     let actions: [EpisodeAction]
 
     @State private var showsNotes = false
 
-    private let columns = [GridItem(.adaptive(minimum: 130), spacing: 8)]
+    private let columns = [GridItem(.adaptive(minimum: 40, maximum: 44), spacing: 8)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -79,7 +114,7 @@ private struct ExpandableEpisodeRow: View {
                 withAnimation { isExpanded.toggle() }
             } label: {
                 HStack {
-                    EpisodeRow(episode: episode)
+                    EpisodeRow(episode: episode, artworkURL: artworkURL)
                     Spacer(minLength: 8)
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .foregroundStyle(.secondary)
@@ -94,21 +129,26 @@ private struct ExpandableEpisodeRow: View {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                     ForEach(actions) { episodeAction in
                         Button(action: episodeAction.action) {
-                            Label(episodeAction.title, systemImage: episodeAction.systemImage)
-                                .frame(maxWidth: .infinity)
+                            Image(systemName: episodeAction.systemImage)
+                                .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .accessibilityLabel(episodeAction.title)
+                        .help(episodeAction.title)
                     }
                     Button {
                         showsNotes.toggle()
                     } label: {
-                        Label(showsNotes ? "Hide shownotes" : "Display shownotes", systemImage: "doc.text")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: showsNotes ? "doc.text.fill" : "doc.text")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .accessibilityLabel(showsNotes ? "Hide shownotes" : "Display shownotes")
+                    .help(showsNotes ? "Hide shownotes" : "Display shownotes")
                 }
+                .padding(.leading, EpisodeRow.contentLeadingInset)
 
                 if showsNotes {
                     if let html = episode.descriptionHtml, !html.isEmpty {
@@ -210,12 +250,13 @@ private struct HTMLShowNotesView: UIViewRepresentable {
 
 private struct NowPlayingSection: View {
     @ObservedObject var player: PlayerController
+    let artworkURL: URL?
 
     var body: some View {
         if let episode = player.episode {
             Section("Now Playing") {
                 HStack(spacing: 12) {
-                    AsyncImage(url: episode.imageURL) { image in
+                    AsyncImage(url: artworkURL) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         ZStack {
@@ -231,6 +272,15 @@ private struct NowPlayingSection: View {
                         Text(episode.podcastTitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         let total = player.duration.isFinite ? max(player.duration, 1) : 1
                         let position = player.currentTime.isFinite ? min(max(player.currentTime, 0), total) : 0
+                        if let playTimeLeft = PlayTimeFormatter.timeLeft(
+                            duration: player.duration,
+                            position: player.currentTime,
+                            playbackRate: player.playbackRate
+                        ) {
+                            Text("Play time left: \(playTimeLeft)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         ProgressView(value: position, total: total)
                     }
                 }

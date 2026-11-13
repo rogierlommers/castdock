@@ -18,6 +18,13 @@ struct ServerConfiguration: Codable, Equatable {
         guard components.path.isEmpty, let url = components.url else { throw APIError.invalidServerURL }
         return ServerConfiguration(serverURL: url, username: username, password: password)
     }
+
+    var displayHostname: String {
+        guard let host = serverURL.host else { return serverURL.absoluteString }
+        guard let port = serverURL.port else { return host }
+        let displayHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return "\(displayHost):\(port)"
+    }
 }
 
 struct HomeResponse: Decodable {
@@ -25,7 +32,7 @@ struct HomeResponse: Decodable {
     let upNext: [Episode]
 }
 
-struct Episode: Decodable, Identifiable, Equatable {
+struct Episode: Decodable, Identifiable, Equatable, Sendable {
     let id: Int64
     let feedId: Int64
     let podcastTitle: String
@@ -47,9 +54,37 @@ struct Episode: Decodable, Identifiable, Equatable {
 
     var enclosureURL: URL? { URL(string: enclosureUrl) }
     var imageURL: URL? { imageUrl.flatMap(URL.init(string:)) }
+    var playTimeLeft: String? {
+        PlayTimeFormatter.timeLeft(
+            duration: Double(durationSeconds),
+            position: positionSeconds,
+            playbackRate: playbackSpeed,
+            completed: completed
+        )
+    }
 }
 
-enum EpisodeState: String, Decodable {
+enum PlayTimeFormatter {
+    static func timeLeft(duration: Double, position: Double, playbackRate: Double, completed: Bool = false) -> String? {
+        guard !completed,
+              duration.isFinite, duration > 0,
+              position.isFinite, position >= 0,
+              playbackRate.isFinite, (0.5...3).contains(playbackRate) else { return nil }
+
+        let totalMinutes = Int(ceil(max(0, duration - position) / playbackRate / 60))
+        guard totalMinutes >= 60 else {
+            return "\(totalMinutes) \(totalMinutes == 1 ? "minute" : "minutes")"
+        }
+
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        let hoursText = "\(hours) \(hours == 1 ? "hour" : "hours")"
+        guard minutes > 0 else { return hoursText }
+        return "\(hoursText) \(minutes) \(minutes == 1 ? "minute" : "minutes")"
+    }
+}
+
+enum EpisodeState: String, Decodable, Sendable {
     case inbox
     case queued
     case archived

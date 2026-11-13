@@ -12,6 +12,8 @@ final class PlayerController: ObservableObject {
     @Published var errorMessage: String?
 
     static let availablePlaybackRates: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    var onPlaybackCompleted: ((Int64) -> Void)?
+    var cachedMediaURL: ((Episode) async -> URL?)?
 
     private let player = AVPlayer()
     private var client: APIClient?
@@ -40,7 +42,7 @@ final class PlayerController: ObservableObject {
         }
     }
 
-    func load(_ episode: Episode, client: APIClient, autoplay: Bool = false) {
+    func load(_ episode: Episode, client: APIClient, autoplay: Bool = false) async {
         speedUpdateGeneration += 1
         speedUpdateTask?.cancel()
         speedUpdateTask = nil
@@ -54,7 +56,8 @@ final class PlayerController: ObservableObject {
         playbackRate = min(max(episode.playbackSpeed, 0.5), 3)
         confirmedPlaybackRate = playbackRate
         lastPeriodicSync = .distantPast
-        guard let url = episode.enclosureURL else {
+        let localMediaURL = await cachedMediaURL?(episode)
+        guard let url = localMediaURL ?? episode.enclosureURL else {
             errorMessage = "This episode does not contain a playable audio URL."
             return
         }
@@ -65,7 +68,7 @@ final class PlayerController: ObservableObject {
             Task { @MainActor in await self?.finished() }
         }
         let resumeAt = CMTime(seconds: episode.positionSeconds, preferredTimescale: 600)
-        player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
+        await player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
         updateNowPlaying()
         if autoplay { play() }
     }
@@ -171,11 +174,12 @@ final class PlayerController: ObservableObject {
                 clientUpdatedAt: ISO8601DateFormatter().string(from: Date())
             )
             let response = try await client.savePlayback(episodeID: episode.id, update: update)
+            if completed { onPlaybackCompleted?(episode.id) }
             if completed,
                let path = response.nextEpisodeUrl,
                let nextID = Int64(path.split(separator: "/").last ?? "") {
                 let next = try await client.episode(id: nextID)
-                load(next, client: client, autoplay: true)
+                await load(next, client: client, autoplay: true)
             }
         } catch {
             errorMessage = error.localizedDescription

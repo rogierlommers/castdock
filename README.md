@@ -20,7 +20,7 @@ The read-only **System** page shows runtime and build information, library and d
 
 ## Native iOS client
 
-The first native SwiftUI client lives in [`clients/ios`](clients/ios). It connects to the same JSON API as the web player and supports Inbox, Up Next, lifecycle actions, feed playback speed, ±15-second seeking, five-second playback synchronization, background audio and lock-screen controls. Open `clients/ios/CastDock.xcodeproj` in Xcode; setup and scope details are in the [iOS README](clients/ios/CastDock/README.md).
+The first native SwiftUI client lives in [`clients/ios`](clients/ios). It connects to the same JSON API as the web player and supports Inbox, Up Next, lifecycle actions, play-time-left estimates, feed playback speed, ±15-second seeking, five-second playback synchronization, background audio and lock-screen controls. It caches active episode artwork and automatically downloads Up Next audio for offline playback over any available network. Cached files have no application-level size cap, are listed with their sizes under **Settings**, and are deleted when their episode is archived. Completed episodes are removed from the visible Up Next list as soon as the server accepts the completion update. Open `clients/ios/CastDock.xcodeproj` in Xcode; setup and scope details are in the [iOS README](clients/ios/CastDock/README.md).
 
 **Refresh all** starts one application-owned background refresh and returns to the Library immediately. Manual and scheduled full-library refreshes share a single-flight guard, so they cannot overlap; an in-progress refresh is canceled cleanly during application shutdown rather than being recorded as a feed failure.
 
@@ -129,7 +129,7 @@ go test ./internal/syndication -run '^TestParseOPMLNestedAndDeduplicated$'
 
 Every runtime setting is read from the environment and validated during startup. There are no application config files or runtime CLI flags.
 
-When authentication is enabled, CastDock protects the web UI, Swagger, OPML operations, and JSON API with an opaque, in-memory session. `/login`, static assets, and `/healthz` remain public. The System page reports only whether authentication is enabled and the session lifetime; it never displays the username or password.
+When authentication is enabled, CastDock protects the web UI, Swagger, OPML operations, and JSON API with an opaque, in-memory session. `/login`, static assets, and `/healthz` remain public. Sessions are invalidated when the backend restarts; the iOS client automatically signs in again and retries the interrupted protected request with its Keychain credentials. The System page reports only whether authentication is enabled and the session lifetime; it never displays the username or password.
 
 Logs are written to stdout as human-readable `key=value` text. Set `CASTDOCK_LOG_LEVEL=debug` for playback-position saves and one detailed completion event per feed refresh. Set `CASTDOCK_ACCESS_LOG_ENABLED=true` independently to emit request method, path, status, response size, and duration at `info`. Logs intentionally identify feeds by database ID, title, and hostname rather than full URL because private feed URLs may contain subscription tokens.
 
