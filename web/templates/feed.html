@@ -38,7 +38,7 @@
 <div class="episode-list">
   {{range .Episodes}}
   <article class="episode-row episode-row-actions">
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{date .PublishedAt}} · {{.State}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· Resume at {{duration .PositionSeconds}}{{end}}</p></a>
+    <a class="episode-link" href="/?play={{.ID}}#now-playing"><h3>{{.Title}}</h3><p>{{date .PublishedAt}} · {{.State}} {{if .Completed}}· Played{{else if gt .PositionSeconds 0.0}}· Resume at {{duration .PositionSeconds}}{{end}}</p></a>
     <div class="episode-actions">
       {{if eq .State "queued"}}
       <form method="post" action="/episodes/{{.ID}}/queue/remove"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button class="secondary" type="submit">Remove from Up Next</button></form>

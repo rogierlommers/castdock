@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     private let mediaCache = EpisodeMediaCache()
     private(set) var apiClient: APIClient?
     private var mediaCacheTask: Task<Void, Never>?
+    private var completeUpNext: [Episode] = []
 
     init() {
         configuration = keychain.load()
@@ -27,8 +28,13 @@ final class AppModel: ObservableObject {
             self.cachedAudioURLs[episode.id] = cachedURL
             return cachedURL
         }
+        player.onEpisodeLoaded = { [weak self] episodeID in
+            guard let self else { return }
+            self.upNext = self.completeUpNext.filter { $0.id != episodeID }
+        }
         player.onPlaybackCompleted = { [weak self] episodeID in
             guard let self else { return }
+            self.completeUpNext.removeAll { $0.id == episodeID }
             self.upNext.removeAll { $0.id == episodeID }
             self.cachedArtworkURLs[episodeID] = nil
             self.cachedAudioURLs[episodeID] = nil
@@ -105,7 +111,8 @@ final class AppModel: ObservableObject {
     }
 
     func title(forCachedEpisodeID episodeID: Int64) -> String {
-        (inbox + upNext).first(where: { $0.id == episodeID })?.title ?? "Episode \(episodeID)"
+        if let playingEpisode = player.episode, playingEpisode.id == episodeID { return playingEpisode.title }
+        return (inbox + upNext).first(where: { $0.id == episodeID })?.title ?? "Episode \(episodeID)"
     }
 
     func refreshCachedFiles() async {
@@ -149,7 +156,14 @@ final class AppModel: ObservableObject {
         guard let source = offsets.first, source != destination, source < upNext.count else { return }
         let episode = upNext[source]
         upNext.move(fromOffsets: offsets, toOffset: destination)
-        let target = (upNext.firstIndex(where: { $0.id == episode.id }) ?? source) + 1
+        let currentEpisodeID = player.episode?.id
+        var reorderedEpisodes = upNext.makeIterator()
+        for index in completeUpNext.indices where completeUpNext[index].id != currentEpisodeID {
+            if let reorderedEpisode = reorderedEpisodes.next() {
+                completeUpNext[index] = reorderedEpisode
+            }
+        }
+        let target = (completeUpNext.firstIndex(where: { $0.id == episode.id }) ?? source) + 1
         Task {
             do {
                 try await apiClient?.reorder(id: episode.id, position: target)
@@ -171,6 +185,7 @@ final class AppModel: ObservableObject {
         apiClient = nil
         inbox = []
         upNext = []
+        completeUpNext = []
         cachedArtworkURLs = [:]
         cachedAudioURLs = [:]
         cachedFiles = []
@@ -192,7 +207,8 @@ final class AppModel: ObservableObject {
 
     private func apply(_ home: HomeResponse) {
         inbox = home.inbox
-        upNext = home.upNext
+        completeUpNext = home.upNext
+        upNext = home.upNext.filter { $0.id != player.episode?.id }
         synchronizeMediaCache(for: home)
     }
 

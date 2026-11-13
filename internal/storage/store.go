@@ -414,6 +414,20 @@ func (s *Store) QueuedEpisodes(ctx context.Context) ([]podcast.Episode, error) {
 	return scanEpisodes(rows)
 }
 
+func (s *Store) CurrentPlayingEpisode(ctx context.Context) (podcast.Episode, error) {
+	episode, err := scanEpisode(s.db.QueryRowContext(ctx, episodeSelect+`
+		WHERE p.playing = 1 AND p.completed = 0
+		ORDER BY p.updated_at DESC, e.id DESC
+		LIMIT 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return podcast.Episode{}, ErrNotFound
+	}
+	if err != nil {
+		return podcast.Episode{}, fmt.Errorf("get current playing episode: %w", err)
+	}
+	return episode, nil
+}
+
 func (s *Store) NextQueuedEpisode(ctx context.Context) (podcast.Episode, error) {
 	episode, err := scanEpisode(s.db.QueryRowContext(ctx, episodeSelect+`
 		WHERE e.state = ?

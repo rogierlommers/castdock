@@ -14,6 +14,7 @@ The first launch asks for a server URL and optional CastDock credentials. Connec
 - Native AVPlayer streaming with a Home-screen Now Playing section for play/pause, live play-time-left, ±15-second seeking, and subscription playback speed
 - Five-second playback synchronization
 - Immediate Up Next removal after a completed playback update is accepted by the server
+- The loaded Now Playing episode is hidden from Up Next before completion without changing its server-owned queue state
 - Manual Sync action with confirmation only after the latest Home response is received, decoded, and applied
 - Cached artwork for active episodes and automatic Up Next audio downloads over Wi-Fi or cellular
 - Offline playback from cached audio, with cached artwork and audio deleted when an episode is archived

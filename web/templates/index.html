@@ -1,17 +1,44 @@
 {{define "index"}}
 {{template "header" .}}
-<section class="hero dashboard-hero">
-  <div>
-    <p class="eyebrow">Your podcast dashboard</p>
-    <h1>Listen on your terms.</h1>
-    <p>A self-hosted, opinionated and single-user podcast library and web player. <a class="hero-github-link" href="https://github.com/rogierlommers/castdock" rel="noreferrer">View on GitHub</a>.</p>
-  </div>
-  <div class="dashboard-links">
-    <a class="button" href="/up-next/play">Play Up Next</a>
-    <a class="button secondary dark-secondary" href="/recent">Browse recent episodes</a>
-    <a class="button secondary dark-secondary" href="/library">Manage library</a>
-  </div>
+<section class="section-heading now-playing-heading" id="now-playing">
+  <p class="eyebrow">Now Playing</p>
 </section>
+{{if .NowPlaying.ID}}
+<article class="now-playing-card">
+  <div class="now-playing-art">
+    {{if .NowPlaying.ImageURL}}<img src="{{.NowPlaying.ImageURL}}" alt="">{{else if .NowPlaying.FeedImageURL}}<img src="{{.NowPlaying.FeedImageURL}}" alt="">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
+  </div>
+  <div class="now-playing-copy">
+    <h2>{{.NowPlaying.Title}}</h2>
+    <p>{{.NowPlaying.FeedTitle}}</p>
+    {{if .NowPlaying.EnclosureURL}}
+    <p id="play-time-left" class="play-time-left" hidden></p>
+    <audio id="player" controls preload="metadata" src="{{.NowPlaying.EnclosureURL}}"
+      data-episode-id="{{.NowPlaying.ID}}" data-feed-id="{{.NowPlaying.FeedID}}" data-position="{{.NowPlaying.PositionSeconds}}" data-completed="{{.NowPlaying.Completed}}" data-playback-rate="{{.NowPlaying.FeedPlaybackSpeed}}" data-stay-on-home="true" data-autoplay="{{.AutoPlay}}"></audio>
+    <label class="player-speed" for="player-playback-rate">Playback speed
+      <select id="player-playback-rate">
+        <option value="0.5" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 0.5}}selected{{end}}>0.5×</option>
+        <option value="0.75" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 0.75}}selected{{end}}>0.75×</option>
+        <option value="1" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 1.0}}selected{{end}}>1×</option>
+        <option value="1.25" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 1.25}}selected{{end}}>1.25×</option>
+        <option value="1.5" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 1.5}}selected{{end}}>1.5×</option>
+        <option value="1.75" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 1.75}}selected{{end}}>1.75×</option>
+        <option value="2" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 2.0}}selected{{end}}>2×</option>
+        <option value="2.5" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 2.5}}selected{{end}}>2.5×</option>
+        <option value="3" {{if speedSelected .NowPlaying.FeedPlaybackSpeed 3.0}}selected{{end}}>3×</option>
+      </select>
+    </label>
+    <div class="playback-controls" aria-label="Playback shortcuts">
+      <button class="secondary" id="rewind-15" type="button" disabled aria-label="Go back 15 seconds">↶ 15 seconds</button>
+      <button class="secondary" id="forward-15" type="button" disabled aria-label="Skip forward 15 seconds">15 seconds ↷</button>
+    </div>
+    <p id="sync-status" class="sync-status" aria-live="polite" hidden></p>
+    {{else}}<p class="inline-error">This episode does not provide a playable enclosure.</p>{{end}}
+  </div>
+</article>
+{{else}}
+<div class="empty-state"><h2>Nothing playing</h2><p>Start an episode from Up Next to see it here.</p></div>
+{{end}}
 
 <section class="section-heading inbox-heading" id="inbox">
   <p class="eyebrow">Inbox · {{len .InboxEpisodes}}</p>
@@ -20,7 +47,7 @@
 <div class="episode-list inbox-list">
   {{range .InboxEpisodes}}
   <article class="episode-row episode-row-actions">
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
+    <a class="episode-link" href="/?play={{.ID}}#now-playing"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
     <div class="episode-actions">
       <form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="/"><button type="submit">Add to Up Next</button></form>
       <form method="post" action="/episodes/{{.ID}}/archive"><input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Archive</button></form>
@@ -43,10 +70,10 @@
   <li class="queue-item" draggable="true" data-episode-id="{{.ID}}" data-queue-position="{{.QueuePosition}}">
     <button class="drag-handle" type="button" aria-label="Drag {{.Title}} to reorder" title="Drag to reorder">⋮⋮</button>
     <span class="queue-position">{{.QueuePosition}}</span>
-    <a class="queue-art" href="/episodes/{{.ID}}">
+    <a class="queue-art" href="/?play={{.ID}}#now-playing">
       {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else if .FeedImageURL}}<img src="{{.FeedImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
     </a>
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
+    <a class="episode-link" href="/?play={{.ID}}#now-playing"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}}</p>{{with playTimeLeft .}}<p class="play-time-left">Play time left: {{.}}</p>{{end}}</a>
     <div class="queue-actions">
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="up"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} up">↑</button></form>
       <form method="post" action="/episodes/{{.ID}}/queue/move"><input type="hidden" name="direction" value="down"><input type="hidden" name="return_to" value="/"><button class="icon-button secondary" type="submit" aria-label="Move {{.Title}} down">↓</button></form>
@@ -60,5 +87,6 @@
 {{else}}
 <div class="empty-state"><h2>Nothing queued</h2><p>Add an episode from Inbox, Recent, or Archive.</p></div>
 {{end}}
+{{if and .NowPlaying.ID .NowPlaying.EnclosureURL}}<script src="/static/player.js" defer></script>{{end}}
 {{template "footer" .}}
 {{end}}

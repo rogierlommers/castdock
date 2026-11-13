@@ -41,10 +41,13 @@
 
       const sourcePosition = Number(draggedItem.dataset.queuePosition);
       let targetPosition = Number(item.dataset.queuePosition);
+      const visiblePositions = items().map((queueItem) => Number(queueItem.dataset.queuePosition));
+      const minimumPosition = Math.min(...visiblePositions);
+      const maximumPosition = Math.max(...visiblePositions);
       const after = event.clientY > item.getBoundingClientRect().top + item.offsetHeight / 2;
       if (after) targetPosition += 1;
       if (sourcePosition < targetPosition) targetPosition -= 1;
-      targetPosition = Math.max(1, Math.min(items().length, targetPosition));
+      targetPosition = Math.max(minimumPosition, Math.min(maximumPosition, targetPosition));
 
       clearDropTargets();
       if (sourcePosition === targetPosition) return;

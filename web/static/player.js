@@ -4,15 +4,23 @@
   const player = document.getElementById("player");
   const status = document.getElementById("sync-status");
   const playTimeLeft = document.getElementById("play-time-left");
+  const playbackRateSelect = document.getElementById("player-playback-rate");
   const rewindButton = document.getElementById("rewind-15");
   const forwardButton = document.getElementById("forward-15");
   if (!player) return;
 
   const episodeID = Number(player.dataset.episodeId);
+  const feedID = Number(player.dataset.feedId);
   const savedPosition = Number(player.dataset.position || 0);
   const configuredPlaybackRate = Number(player.dataset.playbackRate || 1);
+  const stayOnHome = player.dataset.stayOnHome === "true";
+  const shouldAutoplay = player.dataset.autoplay === "true";
   let restored = false;
+  let autoplayAttempted = false;
   let saveChain = Promise.resolve({});
+  let confirmedPlaybackRate = configuredPlaybackRate;
+  let playbackRateSaveTimer;
+  let playbackRateSaveChain = Promise.resolve();
 
   function formatPlayTime(seconds) {
     const totalMinutes = Math.ceil(seconds / 60);
@@ -39,6 +47,36 @@
     playTimeLeft.hidden = false;
   }
 
+  async function persistPlaybackRate(rate) {
+    try {
+      const response = await fetch(`/api/feeds/${feedID}/playback-options`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playbackSpeed: rate }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      confirmedPlaybackRate = rate;
+    } catch (error) {
+      console.error("Unable to save playback speed", error);
+      if (player.playbackRate === rate) {
+        player.playbackRate = confirmedPlaybackRate;
+        if (playbackRateSelect) playbackRateSelect.value = String(confirmedPlaybackRate);
+      }
+      status.hidden = false;
+      status.textContent = "Playback speed could not be saved.";
+    }
+  }
+
+  function schedulePlaybackRateSave() {
+    const rate = player.playbackRate;
+    if (!restored || !Number.isFinite(rate) || rate < 0.5 || rate > 3 || rate === confirmedPlaybackRate) return;
+    if (playbackRateSelect) playbackRateSelect.value = String(rate);
+    window.clearTimeout(playbackRateSaveTimer);
+    playbackRateSaveTimer = window.setTimeout(() => {
+      playbackRateSaveChain = playbackRateSaveChain.then(() => persistPlaybackRate(rate));
+    }, 300);
+  }
+
   const payload = () => ({
     position: Number.isFinite(player.currentTime) ? player.currentTime : 0,
     duration: Number.isFinite(player.duration) ? player.duration : 0,
@@ -48,7 +86,7 @@
   });
 
   async function send(state) {
-    status.textContent = "Saving playback position…";
+    status.hidden = false;
     try {
       const response = await fetch(`/api/episodes/${episodeID}/playback`, {
         method: "POST",
@@ -57,10 +95,11 @@
         keepalive: true,
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      status.textContent = "Playback position saved.";
+      console.info("Playback state succesfully sent:", state);
       return await response.json();
     } catch (error) {
       console.error("Unable to save playback position", error);
+      status.hidden = false;
       status.textContent = "Playback position could not be saved; CastDock will retry.";
       return {};
     }
@@ -89,13 +128,28 @@
     rewindButton.disabled = false;
     forwardButton.disabled = false;
     updatePlayTimeLeft();
+    if (shouldAutoplay && !autoplayAttempted) {
+      autoplayAttempted = true;
+      player.play().catch(() => {
+        status.hidden = false;
+        status.textContent = "Playback could not start automatically. Select play to continue.";
+      });
+    }
   }
 
   player.addEventListener("loadedmetadata", handleLoadedMetadata);
   if (player.readyState >= 1) handleLoadedMetadata();
-  for (const event of ["timeupdate", "durationchange", "ratechange"]) {
+  for (const event of ["timeupdate", "durationchange"]) {
     player.addEventListener(event, updatePlayTimeLeft);
   }
+  player.addEventListener("ratechange", () => {
+    updatePlayTimeLeft();
+    schedulePlaybackRateSave();
+  });
+  playbackRateSelect?.addEventListener("change", () => {
+    const rate = Number(playbackRateSelect.value);
+    if (Number.isFinite(rate) && rate >= 0.5 && rate <= 3) player.playbackRate = rate;
+  });
 
   function seekBy(seconds) {
     const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
@@ -110,7 +164,14 @@
   }
   player.addEventListener("ended", async () => {
     const result = await save();
-    if (result.nextEpisodeUrl) window.location.assign(result.nextEpisodeUrl);
+    if (result.nextEpisodeUrl) {
+      if (stayOnHome) {
+        const nextEpisodeID = result.nextEpisodeUrl.split("/").filter(Boolean).pop();
+        window.location.assign(`/?play=${encodeURIComponent(nextEpisodeID)}#now-playing`);
+      } else {
+        window.location.assign(result.nextEpisodeUrl);
+      }
+    }
   });
   window.setInterval(() => {
     if (!player.paused && !player.ended) void save();

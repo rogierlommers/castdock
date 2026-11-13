@@ -13,6 +13,7 @@ final class PlayerController: ObservableObject {
 
     static let availablePlaybackRates: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
     var onPlaybackCompleted: ((Int64) -> Void)?
+    var onEpisodeLoaded: ((Int64) -> Void)?
     var cachedMediaURL: ((Episode) async -> URL?)?
 
     private let player = AVPlayer()
@@ -48,6 +49,7 @@ final class PlayerController: ObservableObject {
         speedUpdateTask = nil
         pendingPlaybackRate = nil
         self.episode = episode
+        onEpisodeLoaded?(episode.id)
         self.client = client
         errorMessage = nil
         playbackRateError = nil

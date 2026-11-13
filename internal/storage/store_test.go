@@ -100,6 +100,20 @@ func TestStoreFeedEpisodeAndPlayback(t *testing.T) {
 	if got.PositionSeconds != 30 || !got.Playing {
 		t.Fatalf("Episode() playback = %+v", got)
 	}
+	nowPlaying, err := store.CurrentPlayingEpisode(ctx)
+	if err != nil || nowPlaying.ID != episodes[0].ID {
+		t.Fatalf("CurrentPlayingEpisode() = %+v, %v", nowPlaying, err)
+	}
+	_, err = store.SavePlayback(ctx, playback.State{
+		EpisodeID: episodes[0].ID, Position: 30, Duration: 120,
+		ClientUpdatedAt: newer.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatalf("stop playback: %v", err)
+	}
+	if _, err := store.CurrentPlayingEpisode(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("CurrentPlayingEpisode() after stop error = %v, want ErrNotFound", err)
+	}
 }
 
 func TestEpisodeLifecycleAndQueueOrdering(t *testing.T) {

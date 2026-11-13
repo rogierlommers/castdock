@@ -7,7 +7,7 @@
 <div class="recent-list">
   {{range .Episodes}}
   <article class="recent-card">
-    <a class="recent-art" href="/episodes/{{.ID}}">
+    <a class="recent-art" href="/?play={{.ID}}#now-playing">
       {{if .ImageURL}}<img src="{{.ImageURL}}" alt="" loading="lazy">{{else}}<div class="art-placeholder" aria-hidden="true">◉</div>{{end}}
     </a>
     <div class="recent-content">
@@ -15,7 +15,7 @@
         <span class="state-badge">{{.State}}</span>
         {{if .Completed}}<span class="state-badge played">Played</span>{{else}}<span class="state-badge">Unplayed</span>{{end}}
       </div>
-      <a class="episode-link" href="/episodes/{{.ID}}"><h2>{{.Title}}</h2></a>
+      <a class="episode-link" href="/?play={{.ID}}#now-playing"><h2>{{.Title}}</h2></a>
       <p class="episode-meta">{{.FeedTitle}} · {{date .PublishedAt}} {{if and (not .Completed) (gt .PositionSeconds 0.0)}}· Resume at {{duration .PositionSeconds}}{{end}}</p>
       <details class="show-notes">
         <summary>Description and show notes</summary>

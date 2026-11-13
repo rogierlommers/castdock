@@ -11,7 +11,7 @@
 <div class="episode-list">
   {{range .Episodes}}
   <article class="episode-row episode-row-actions">
-    <a class="episode-link" href="/episodes/{{.ID}}"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}} {{if .Completed}}· Played{{end}}</p></a>
+    <a class="episode-link" href="/?play={{.ID}}#now-playing"><h3>{{.Title}}</h3><p>{{.FeedTitle}} · {{date .PublishedAt}} {{if .Completed}}· Played{{end}}</p></a>
     <div class="episode-actions"><form method="post" action="/episodes/{{.ID}}/queue"><input type="hidden" name="return_to" value="{{$.ReturnTo}}"><button type="submit">Add to Up Next</button></form></div>
   </article>
   {{end}}

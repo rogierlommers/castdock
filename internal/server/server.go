@@ -41,6 +41,7 @@ type Repository interface {
 	EpisodesForFeed(context.Context, int64, int, int) ([]podcast.Episode, error)
 	EpisodesByState(context.Context, podcast.EpisodeState, string, int, int) ([]podcast.Episode, error)
 	QueuedEpisodes(context.Context) ([]podcast.Episode, error)
+	CurrentPlayingEpisode(context.Context) (podcast.Episode, error)
 	NextQueuedEpisode(context.Context) (podcast.Episode, error)
 	Episode(context.Context, int64) (podcast.Episode, error)
 	SetEpisodeState(context.Context, int64, podcast.EpisodeState) error
@@ -100,6 +101,7 @@ type pageData struct {
 	Episodes       []podcast.Episode
 	InboxEpisodes  []podcast.Episode
 	QueuedEpisodes []podcast.Episode
+	NowPlaying     podcast.Episode
 	Episode        podcast.Episode
 	Search         string
 	ReturnTo       string
@@ -115,6 +117,7 @@ type pageData struct {
 	Uptime         string
 	NetworkEvents  []networkEvent
 	AuthEnabled    bool
+	AutoPlay       bool
 	LoginError     string
 	Next           string
 }
@@ -721,9 +724,41 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	var nowPlaying podcast.Episode
+	autoPlay := false
+	if selected := strings.TrimSpace(r.URL.Query().Get("play")); selected != "" {
+		autoPlay = true
+		episodeID, err := strconv.ParseInt(selected, 10, 64)
+		if err != nil || episodeID <= 0 {
+			http.Error(w, "invalid episode ID", http.StatusBadRequest)
+			return
+		}
+		nowPlaying, err = s.repository.Episode(r.Context(), episodeID)
+		if errors.Is(err, storage.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+	} else {
+		nowPlaying, err = s.repository.CurrentPlayingEpisode(r.Context())
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			s.internalError(w, r, err)
+			return
+		}
+	}
+	visibleQueuedEpisodes := make([]podcast.Episode, 0, len(queuedEpisodes))
+	for _, episode := range queuedEpisodes {
+		if episode.ID != nowPlaying.ID {
+			visibleQueuedEpisodes = append(visibleQueuedEpisodes, episode)
+		}
+	}
 	s.render(w, r, "index", pageData{
-		InboxEpisodes: inboxEpisodes, QueuedEpisodes: queuedEpisodes,
-		Notice: r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
+		InboxEpisodes: inboxEpisodes, QueuedEpisodes: visibleQueuedEpisodes, NowPlaying: nowPlaying,
+		AutoPlay: autoPlay,
+		Notice:   r.URL.Query().Get("notice"), Error: r.URL.Query().Get("error"),
 	})
 }
 

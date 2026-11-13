@@ -34,6 +34,7 @@ type fakeRepository struct {
 	feeds         []podcast.Feed
 	feed          podcast.Feed
 	episode       podcast.Episode
+	nowPlaying    podcast.Episode
 	reorderID     int64
 	reorderTarget int
 	playedID      int64
@@ -65,6 +66,12 @@ func (f *fakeRepository) EpisodesByState(context.Context, podcast.EpisodeState, 
 }
 func (f *fakeRepository) QueuedEpisodes(context.Context) ([]podcast.Episode, error) {
 	return f.queued, nil
+}
+func (f *fakeRepository) CurrentPlayingEpisode(context.Context) (podcast.Episode, error) {
+	if f.nowPlaying.ID == 0 {
+		return podcast.Episode{}, storage.ErrNotFound
+	}
+	return f.nowPlaying, nil
 }
 func (f *fakeRepository) NextQueuedEpisode(context.Context) (podcast.Episode, error) {
 	if f.next.ID == 0 {
@@ -117,6 +124,10 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	position := 1
 	secondPosition := 2
 	server := newTestServer(t, &fakeRepository{
+		nowPlaying: podcast.Episode{
+			ID: 10, Title: "Currently playing", FeedTitle: "Playing podcast", ImageURL: "https://example.com/playing.jpg",
+			DurationSeconds: 7200, PositionSeconds: 1800, FeedPlaybackSpeed: 1.5, Playing: true,
+		},
 		inbox: []podcast.Episode{{
 			ID: 11, Title: "Inbox episode", FeedTitle: "Example podcast", State: podcast.EpisodeStateInbox,
 			DurationSeconds: 5400, FeedPlaybackSpeed: 1.5,
@@ -135,6 +146,17 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
+	if nowPlayingPosition, inboxPosition := strings.Index(body, "Now Playing"), strings.Index(body, "Inbox · 1"); nowPlayingPosition < 0 || inboxPosition < 0 || nowPlayingPosition > inboxPosition {
+		t.Fatalf("now playing is not above Inbox: %s", body)
+	}
+	for _, expected := range []string{"Currently playing", "Playing podcast", "playing.jpg", `/?play=11#now-playing`, `/?play=12#now-playing`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("landing page now-playing section missing %q: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, `href="/episodes/`) {
+		t.Fatalf("landing page still links to the dedicated episode page: %s", body)
+	}
 	if !strings.Contains(body, "Inbox episode") || !strings.Contains(body, "/episodes/11/queue") || !strings.Contains(body, "/episodes/11/archive") {
 		t.Fatalf("landing page inbox actions missing: %s", body)
 	}
@@ -171,6 +193,9 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	if strings.Contains(body, "Subscriptions") || strings.Contains(body, "Podcast feed URL") {
 		t.Fatalf("library content still appears on homepage: %s", body)
 	}
+	if strings.Contains(body, "Play Up Next") || strings.Contains(body, "Browse recent episodes") || strings.Contains(body, "Manage library") || strings.Contains(body, "Listen on your terms") {
+		t.Fatalf("landing page still contains promotional header controls: %s", body)
+	}
 	if strings.Contains(body, "Open Inbox") || strings.Contains(body, "Needs your attention") || strings.Contains(body, "Listening order") {
 		t.Fatalf("legacy homepage headings or controls remain: %s", body)
 	}
@@ -187,14 +212,63 @@ func TestIndexRendersAndSetsSecurityHeaders(t *testing.T) {
 	if got := response.Header().Get("Referrer-Policy"); got != "same-origin" {
 		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
 	}
-	if !strings.Contains(body, `href="https://github.com/rogierlommers/castdock"`) || !strings.Contains(body, "View on GitHub") {
-		t.Fatalf("GitHub repository link missing from layout: %s", body)
-	}
-	if !strings.Contains(body, `class="hero-github-link"`) {
-		t.Fatalf("GitHub repository link missing from homepage introduction: %s", body)
-	}
 	if !strings.Contains(body, `<a class="brand" href="/"><img src="/static/favicon.svg"`) {
 		t.Fatalf("favicon missing from site header brand: %s", body)
+	}
+}
+
+func TestIndexSelectsEpisodeIntoInlinePlayer(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{episode: podcast.Episode{
+		ID: 12, FeedID: 7, Title: "Selected episode", FeedTitle: "Selected podcast",
+		EnclosureURL: "https://example.com/selected.mp3", DurationSeconds: 3600,
+		PositionSeconds: 120, FeedPlaybackSpeed: 1.25,
+	}})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/?play=12", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		"Selected episode", `id="player"`, `data-episode-id="12"`, `data-stay-on-home="true"`, `data-autoplay="true"`,
+		`data-feed-id="7"`, `id="player-playback-rate"`, `value="1.25" selected`,
+		`id="rewind-15"`, `id="forward-15"`, `/static/player.js`,
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("inline player missing %q: %s", expected, response.Body.String())
+		}
+	}
+}
+
+func TestIndexHidesNowPlayingEpisodeFromUpNext(t *testing.T) {
+	firstPosition := 1
+	secondPosition := 2
+	server := newTestServer(t, &fakeRepository{
+		nowPlaying: podcast.Episode{ID: 12, Title: "Playing from queue", Playing: true},
+		queued: []podcast.Episode{
+			{ID: 12, Title: "Playing from queue", State: podcast.EpisodeStateQueued, QueuePosition: &firstPosition},
+			{ID: 13, Title: "Still up next", State: podcast.EpisodeStateQueued, QueuePosition: &secondPosition},
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "Up Next · 1") || !strings.Contains(body, `data-episode-id="13"`) || strings.Contains(body, `data-episode-id="12"`) {
+		t.Fatalf("now-playing episode was not removed from Up Next: %s", body)
+	}
+}
+
+func TestIndexShowsEmptyNowPlayingState(t *testing.T) {
+	server := newTestServer(t, &fakeRepository{})
+	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Nothing playing") {
+		t.Fatalf("empty now-playing state missing: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -390,7 +464,8 @@ func TestEpisodePageVisuallyBoundsFormattedShowNotes(t *testing.T) {
 	}
 	for _, expected := range []string{
 		`class="show-notes-panel"`, `id="show-notes-heading"`, `>Show notes</h2>`, `<strong>formatted</strong>`,
-		`id="play-time-left"`, `id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`, `data-playback-rate="1.5"`, `/static/player.js`,
+		`id="play-time-left"`, `id="rewind-15"`, `Go back 15 seconds`, `id="forward-15"`, `Skip forward 15 seconds`,
+		`data-playback-rate="1.5"`, `data-feed-id="4"`, `id="player-playback-rate"`, `/static/player.js`,
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("episode page show-notes boundary missing %q: %s", expected, response.Body.String())
@@ -406,11 +481,16 @@ func TestPlayerScriptSupportsPlaybackShortcutsAndTimeLeft(t *testing.T) {
 	contents := string(script)
 	for _, expected := range []string{
 		"seekBy(-15)", "seekBy(15)", "Math.max(0", "Math.min(upperBound", "player.playbackRate = configuredPlaybackRate",
-		"Play time left:", "duration - currentTime", "/ playbackRate", `"timeupdate", "durationchange", "ratechange"`,
+		"Play time left:", "duration - currentTime", "/ playbackRate", `"timeupdate", "durationchange"`, `"ratechange"`,
+		"stayOnHome", "?play=", "#now-playing", "shouldAutoplay", "player.play()",
+		"player-playback-rate", `/api/feeds/${feedID}/playback-options`, "playbackSpeed", "confirmedPlaybackRate",
 	} {
 		if !strings.Contains(contents, expected) {
 			t.Fatalf("player script missing %q", expected)
 		}
+	}
+	if strings.Contains(contents, "Playback position saved.") {
+		t.Fatal("player script still renders the playback-saved success string")
 	}
 }
 
