@@ -44,14 +44,14 @@ final class PlayerController: ObservableObject {
         configureAudioSession()
         configureRemoteCommands()
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 2), queue: .main) { [weak self] time in
-            guard let self else { return }
-            Task { @MainActor in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.currentTime = max(time.seconds, 0)
                 self.duration = self.player.currentItem?.duration.seconds.isFinite == true ? self.player.currentItem!.duration.seconds : 0
                 self.updateNowPlaying()
                 if self.isPlaying && Date().timeIntervalSince(self.lastPeriodicSync) >= 5 {
                     self.lastPeriodicSync = Date()
-                    await self.sync()
+                    Task { await self.sync() }
                 }
             }
         }
