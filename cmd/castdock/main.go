@@ -44,7 +44,15 @@ func run() error {
 
 	fetcher := syndication.NewFetcher(cfg.HTTPTimeout, cfg.MaxFeedBytes, cfg.AllowPrivateFeeds)
 	feedService := syndication.NewService(ctx, store, fetcher, logger, cfg.RefreshConcurrency)
-	authentication := auth.New(cfg.AuthUsername, cfg.AuthPassword, cfg.SessionTTL)
+	authentication := auth.New("", "", cfg.SessionTTL)
+	if cfg.AuthenticationEnabled() {
+		authentication, err = auth.NewPersistent(cfg.AuthUsername, cfg.AuthPassword, cfg.SessionSecret, cfg.SessionTTL, store)
+		if err != nil {
+			return err
+		}
+	} else if err := store.ClearSessions(ctx); err != nil {
+		return err
+	}
 	webServer, err := server.New(store, feedService, logger, server.Options{
 		MaxOPMLBytes:   cfg.MaxOPMLBytes,
 		MaxOPMLFeeds:   cfg.MaxOPMLFeeds,

@@ -62,6 +62,9 @@ To run the app using docker-compose, use the following:
       CASTDOCK_ALLOW_PRIVATE_FEEDS: "false"
       CASTDOCK_LOG_LEVEL: "debug"
       CASTDOCK_ACCESS_LOG_ENABLED: "false"
+      CASTDOCK_AUTH_USERNAME: ""
+      CASTDOCK_AUTH_PASSWORD: ""
+      CASTDOCK_SESSION_SECRET: ""
     restart: unless-stopped
 ```
 
@@ -125,11 +128,14 @@ go test ./internal/syndication -run '^TestParseOPMLNestedAndDeduplicated$'
 | `CASTDOCK_ACCESS_LOG_ENABLED` | `false` | Emit one access log for each HTTP request |
 | `CASTDOCK_AUTH_USERNAME` | empty | Single-user login name; both credentials must be set to enable authentication |
 | `CASTDOCK_AUTH_PASSWORD` | empty | Single-user password; keep it secret and never commit a populated `.env` |
-| `CASTDOCK_SESSION_TTL` | `720h` | Login session lifetime; sessions are invalidated when CastDock restarts |
+| `CASTDOCK_SESSION_SECRET` | empty | Required with authentication; at least 32 random bytes used to hash and bind persistent sessions |
+| `CASTDOCK_SESSION_TTL` | `720h` | Login session lifetime across CastDock restarts |
 
 Every runtime setting is read from the environment and validated during startup. There are no application config files or runtime CLI flags.
 
-When authentication is enabled, CastDock protects the web UI, Swagger, OPML operations, and JSON API with an opaque, in-memory session. `/login`, static assets, and `/healthz` remain public. Sessions are invalidated when the backend restarts; the iOS client automatically signs in again and retries the interrupted protected request with its Keychain credentials. The System page reports only whether authentication is enabled and the session lifetime; it never displays the username or password.
+When authentication is enabled, CastDock protects the web UI, Swagger, OPML operations, and JSON API with opaque sessions. `/login`, static assets, and `/healthz` remain public. Session tokens are random, only keyed hashes are stored in SQLite, and unexpired sessions survive backend restarts. Logout revokes the stored session immediately. Changing the username, password, or `CASTDOCK_SESSION_SECRET` invalidates existing sessions; disabling authentication clears them. Keep the secret stable and outside source control, and rotate it when a global logout is required. Generate a suitable value with `openssl rand -base64 48`. The System page reports only whether authentication is enabled and the session lifetime; it never displays credentials or the session secret.
+
+Authenticated deployments must set `CASTDOCK_SESSION_SECRET` before upgrading to the persistent-session release. The migration creates an empty session table, so the upgrade itself requires one final login; sessions created afterward survive normal restarts. Restore the database and the matching session secret together when preserving sessions across disaster recovery, or use a new secret to invalidate restored sessions.
 
 Logs are written to stdout as human-readable `key=value` text. Set `CASTDOCK_LOG_LEVEL=debug` for playback-position saves and one detailed completion event per feed refresh. Set `CASTDOCK_ACCESS_LOG_ENABLED=true` independently to emit request method, path, status, response size, and duration at `info`. Logs intentionally identify feeds by database ID, title, and hostname rather than full URL because private feed URLs may contain subscription tokens.
 

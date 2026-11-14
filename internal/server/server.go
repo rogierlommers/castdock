@@ -333,17 +333,24 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if s.authentication.Enabled() && !publicAuthPath(r.URL.Path) && !s.authenticated(r) {
-			if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/queue/reorder" {
-				http.Error(response, "authentication required", http.StatusUnauthorized)
+		if s.authentication.Enabled() && !publicAuthPath(r.URL.Path) {
+			authenticated, err := s.authenticated(r)
+			if err != nil {
+				s.internalError(response, r, fmt.Errorf("validate session: %w", err))
 				return
 			}
-			next := "/"
-			if r.Method == http.MethodGet || r.Method == http.MethodHead {
-				next = r.URL.RequestURI()
+			if !authenticated {
+				if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/queue/reorder" {
+					http.Error(response, "authentication required", http.StatusUnauthorized)
+					return
+				}
+				next := "/"
+				if r.Method == http.MethodGet || r.Method == http.MethodHead {
+					next = r.URL.RequestURI()
+				}
+				http.Redirect(response, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+				return
 			}
-			http.Redirect(response, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
-			return
 		}
 		next.ServeHTTP(response, r)
 	})
@@ -355,9 +362,12 @@ func publicAuthPath(path string) bool {
 	return path == "/login" || path == "/healthz" || path == "/api/session" || strings.HasPrefix(path, "/static/")
 }
 
-func (s *Server) authenticated(r *http.Request) bool {
+func (s *Server) authenticated(r *http.Request) (bool, error) {
 	cookie, err := r.Cookie(sessionCookieName)
-	return err == nil && s.authentication.Valid(cookie.Value)
+	if err != nil {
+		return false, nil
+	}
+	return s.authentication.Valid(r.Context(), cookie.Value)
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +375,12 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	if s.authenticated(r) {
+	authenticated, err := s.authenticated(r)
+	if err != nil {
+		s.internalError(w, r, fmt.Errorf("validate session: %w", err))
+		return
+	}
+	if authenticated {
 		http.Redirect(w, r, safeReturnTo(r.URL.Query().Get("next")), http.StatusSeeOther)
 		return
 	}
@@ -389,7 +404,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderStatus(w, r, "login", pageData{Title: "Sign in", LoginError: "Invalid username or password.", Next: next}, http.StatusUnauthorized)
 		return
 	}
-	token, err := s.authentication.CreateSession()
+	token, err := s.authentication.CreateSession(r.Context())
 	if err != nil {
 		s.internalError(w, r, fmt.Errorf("create session: %w", err))
 		return
@@ -422,7 +437,7 @@ func (s *Server) createAPISession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid username or password", http.StatusUnauthorized)
 		return
 	}
-	token, err := s.authentication.CreateSession()
+	token, err := s.authentication.CreateSession(r.Context())
 	if err != nil {
 		s.internalError(w, r, fmt.Errorf("create API session: %w", err))
 		return
@@ -434,7 +449,10 @@ func (s *Server) createAPISession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteAPISession(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
-		s.authentication.Revoke(cookie.Value)
+		if err := s.authentication.Revoke(r.Context(), cookie.Value); err != nil {
+			s.internalError(w, r, fmt.Errorf("revoke session: %w", err))
+			return
+		}
 	}
 	s.clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
@@ -442,7 +460,10 @@ func (s *Server) deleteAPISession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
-		s.authentication.Revoke(cookie.Value)
+		if err := s.authentication.Revoke(r.Context(), cookie.Value); err != nil {
+			s.internalError(w, r, fmt.Errorf("revoke session: %w", err))
+			return
+		}
 	}
 	s.clearSessionCookie(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)

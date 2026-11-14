@@ -10,7 +10,7 @@ func TestLoadDefaults(t *testing.T) {
 		"CASTDOCK_LISTEN_ADDR", "CASTDOCK_DATABASE_PATH", "CASTDOCK_REFRESH_INTERVAL",
 		"CASTDOCK_HTTP_TIMEOUT", "CASTDOCK_MAX_FEED_BYTES", "CASTDOCK_MAX_OPML_BYTES",
 		"CASTDOCK_MAX_OPML_FEEDS", "CASTDOCK_REFRESH_CONCURRENCY", "CASTDOCK_ALLOW_PRIVATE_FEEDS", "CASTDOCK_ACCESS_LOG_ENABLED", "CASTDOCK_LOG_LEVEL",
-		"CASTDOCK_AUTH_USERNAME", "CASTDOCK_AUTH_PASSWORD", "CASTDOCK_SESSION_TTL",
+		"CASTDOCK_AUTH_USERNAME", "CASTDOCK_AUTH_PASSWORD", "CASTDOCK_SESSION_SECRET", "CASTDOCK_SESSION_TTL",
 	} {
 		t.Setenv(name, "")
 	}
@@ -28,6 +28,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("CASTDOCK_ACCESS_LOG_ENABLED", "false")
 	t.Setenv("CASTDOCK_AUTH_USERNAME", "")
 	t.Setenv("CASTDOCK_AUTH_PASSWORD", "")
+	t.Setenv("CASTDOCK_SESSION_SECRET", "")
 	t.Setenv("CASTDOCK_SESSION_TTL", "720h")
 	t.Setenv("CASTDOCK_LOG_LEVEL", "info")
 
@@ -48,6 +49,25 @@ func TestLoadRequiresBothAuthenticationCredentials(t *testing.T) {
 	t.Setenv("CASTDOCK_AUTH_PASSWORD", "")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected incomplete authentication error")
+	}
+}
+
+func TestLoadRequiresStrongSessionSecretWhenAuthenticationIsEnabled(t *testing.T) {
+	t.Setenv("CASTDOCK_AUTH_USERNAME", "listener")
+	t.Setenv("CASTDOCK_AUTH_PASSWORD", "password")
+	t.Setenv("CASTDOCK_SESSION_SECRET", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected missing session-secret validation error")
+	}
+
+	t.Setenv("CASTDOCK_SESSION_SECRET", "short")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected session-secret validation error")
+	}
+
+	t.Setenv("CASTDOCK_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() with valid session secret error = %v", err)
 	}
 }
 

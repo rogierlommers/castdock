@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	authn "github.com/rlommers/castdock/internal/auth"
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
 	"github.com/rlommers/castdock/migrations"
@@ -341,8 +342,8 @@ func TestOpenLogsMigrationProgress(t *testing.T) {
 		`msg="applying database migration"`,
 		`msg="database migration applied"`,
 		`msg="database migrations complete"`,
-		`current_version=4`,
-		`applied=4`,
+		`current_version=5`,
+		`applied=5`,
 	} {
 		if !strings.Contains(firstRun.String(), expected) {
 			t.Fatalf("first migration log missing %q: %s", expected, firstRun.String())
@@ -358,5 +359,66 @@ func TestOpenLogsMigrationProgress(t *testing.T) {
 	store.Close()
 	if !strings.Contains(secondRun.String(), `msg="database migration already applied"`) || !strings.Contains(secondRun.String(), `applied=0`) {
 		t.Fatalf("second migration log lacks skip summary: %s", secondRun.String())
+	}
+}
+
+func TestPersistentSessionsSurviveStoreRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "castdock.db")
+	secret := "0123456789abcdef0123456789abcdef"
+
+	store, err := Open(ctx, path, discardLogger())
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	manager, err := authn.NewPersistent("listener", "password", secret, time.Hour, store)
+	if err != nil {
+		t.Fatalf("NewPersistent() error = %v", err)
+	}
+	token, err := manager.CreateSession(ctx)
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	var rawTokenMatches int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?`, []byte(token)).Scan(&rawTokenMatches); err != nil {
+		t.Fatalf("query raw token: %v", err)
+	}
+	if rawTokenMatches != 0 {
+		t.Fatal("raw session token was stored in SQLite")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	reopened, err := Open(ctx, path, discardLogger())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	t.Cleanup(func() { reopened.Close() })
+	restartedManager, err := authn.NewPersistent("listener", "password", secret, time.Hour, reopened)
+	if err != nil {
+		t.Fatalf("restart NewPersistent() error = %v", err)
+	}
+	valid, err := restartedManager.Valid(ctx, token)
+	if err != nil || !valid {
+		t.Fatalf("session after restart valid=%v error=%v", valid, err)
+	}
+	if err := restartedManager.Revoke(ctx, token); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+	valid, err = restartedManager.Valid(ctx, token)
+	if err != nil || valid {
+		t.Fatalf("revoked persistent session valid=%v error=%v", valid, err)
+	}
+	token, err = restartedManager.CreateSession(ctx)
+	if err != nil {
+		t.Fatalf("create session before clear: %v", err)
+	}
+	if err := reopened.ClearSessions(ctx); err != nil {
+		t.Fatalf("ClearSessions() error = %v", err)
+	}
+	valid, err = restartedManager.Valid(ctx, token)
+	if err != nil || valid {
+		t.Fatalf("session survived ClearSessions(): valid=%v error=%v", valid, err)
 	}
 }

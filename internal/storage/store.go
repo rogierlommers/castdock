@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	authn "github.com/rlommers/castdock/internal/auth"
 	"github.com/rlommers/castdock/internal/playback"
 	"github.com/rlommers/castdock/internal/podcast"
 	"github.com/rlommers/castdock/migrations"
@@ -70,6 +72,71 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Store, error)
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Health(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+func (s *Store) SaveSession(ctx context.Context, tokenHash [sha256.Size]byte, session authn.Session) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin save session: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, time.Now().UTC().Unix()); err != nil {
+		return fmt.Errorf("delete expired sessions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO auth_sessions (token_hash, credential_hash, expires_at, created_at)
+		VALUES (?, ?, ?, ?)`, tokenHash[:], session.CredentialHash[:], session.ExpiresAt.UTC().Unix(), time.Now().UTC().Unix()); err != nil {
+		return fmt.Errorf("insert session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) Session(ctx context.Context, tokenHash [sha256.Size]byte) (authn.Session, bool, error) {
+	var credentialHash []byte
+	var expiresAt int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT credential_hash, expires_at
+		FROM auth_sessions
+		WHERE token_hash = ?`, tokenHash[:]).Scan(&credentialHash, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return authn.Session{}, false, nil
+	}
+	if err != nil {
+		return authn.Session{}, false, fmt.Errorf("get session: %w", err)
+	}
+	if len(credentialHash) != sha256.Size {
+		return authn.Session{}, false, fmt.Errorf("get session: invalid credential hash length %d", len(credentialHash))
+	}
+	var session authn.Session
+	copy(session.CredentialHash[:], credentialHash)
+	session.ExpiresAt = time.Unix(expiresAt, 0).UTC()
+	return session, true, nil
+}
+
+func (s *Store) RevokeSession(ctx context.Context, tokenHash [sha256.Size]byte) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash[:]); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PruneSessions(ctx context.Context, credentialHash [sha256.Size]byte, now time.Time) error {
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM auth_sessions
+		WHERE credential_hash <> ? OR expires_at <= ?`, credentialHash[:], now.UTC().Unix()); err != nil {
+		return fmt.Errorf("prune sessions: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ClearSessions(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM auth_sessions`); err != nil {
+		return fmt.Errorf("clear sessions: %w", err)
+	}
+	return nil
+}
 
 func (s *Store) LibraryStatistics(ctx context.Context) (podcast.LibraryStatistics, error) {
 	var statistics podcast.LibraryStatistics

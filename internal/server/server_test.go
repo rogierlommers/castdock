@@ -867,7 +867,8 @@ func TestOptionalAuthenticationLoginSessionAndLogout(t *testing.T) {
 	logoutRequest.AddCookie(cookies[0])
 	logoutResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(logoutResponse, logoutRequest)
-	if logoutResponse.Code != http.StatusSeeOther || logoutResponse.Header().Get("Location") != "/login" || authentication.Valid(cookies[0].Value) {
+	valid, validationErr := authentication.Valid(context.Background(), cookies[0].Value)
+	if logoutResponse.Code != http.StatusSeeOther || logoutResponse.Header().Get("Location") != "/login" || validationErr != nil || valid {
 		t.Fatalf("logout response: status=%d location=%q", logoutResponse.Code, logoutResponse.Header().Get("Location"))
 	}
 }
@@ -920,7 +921,8 @@ func TestNativeAPISessionCreatesAuthenticatedCookie(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || !authentication.Valid(cookies[0].Value) {
+	valid, validationErr := authentication.Valid(context.Background(), cookies[0].Value)
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || validationErr != nil || !valid {
 		t.Fatalf("API session cookies = %#v", cookies)
 	}
 }

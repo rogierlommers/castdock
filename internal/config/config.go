@@ -32,6 +32,7 @@ type Config struct {
 	AccessLogEnabled   bool
 	AuthUsername       string
 	AuthPassword       string
+	SessionSecret      string
 	SessionTTL         time.Duration
 	LogLevel           slog.Level
 }
@@ -98,8 +99,15 @@ func Load() (Config, error) {
 	}
 	cfg.AuthUsername = strings.TrimSpace(os.Getenv("CASTDOCK_AUTH_USERNAME"))
 	cfg.AuthPassword = os.Getenv("CASTDOCK_AUTH_PASSWORD")
+	cfg.SessionSecret = os.Getenv("CASTDOCK_SESSION_SECRET")
 	if (cfg.AuthUsername == "") != (cfg.AuthPassword == "") {
 		errs = append(errs, errors.New("CASTDOCK_AUTH_USERNAME and CASTDOCK_AUTH_PASSWORD must either both be set or both be empty"))
+	}
+	if cfg.SessionSecret != "" && len(cfg.SessionSecret) < 32 {
+		errs = append(errs, errors.New("CASTDOCK_SESSION_SECRET must contain at least 32 bytes"))
+	}
+	if cfg.AuthenticationEnabled() && cfg.SessionSecret == "" {
+		errs = append(errs, errors.New("CASTDOCK_SESSION_SECRET is required when authentication is enabled"))
 	}
 
 	if raw, ok := os.LookupEnv("CASTDOCK_LOG_LEVEL"); ok {
