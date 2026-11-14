@@ -1,6 +1,17 @@
 @preconcurrency import AVFoundation
 import MediaPlayer
 
+struct PlayerErrorState {
+    var media: String?
+    var connectivity: String?
+
+    var visibleMessage: String? { connectivity ?? media }
+
+    mutating func clearConnectivity() {
+        connectivity = nil
+    }
+}
+
 @MainActor
 final class PlayerController: ObservableObject {
     @Published private(set) var episode: Episode?
@@ -9,7 +20,9 @@ final class PlayerController: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var playbackRate: Double = 1
     @Published private(set) var playbackRateError: String?
-    @Published var errorMessage: String?
+    @Published private var errors = PlayerErrorState()
+
+    var errorMessage: String? { errors.visibleMessage }
 
     static let availablePlaybackRates: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
     var onPlaybackCompleted: ((Int64) -> Void)?
@@ -51,7 +64,7 @@ final class PlayerController: ObservableObject {
         self.episode = episode
         onEpisodeLoaded?(episode.id)
         self.client = client
-        errorMessage = nil
+        errors = PlayerErrorState()
         playbackRateError = nil
         currentTime = episode.positionSeconds
         duration = Double(episode.durationSeconds)
@@ -60,7 +73,7 @@ final class PlayerController: ObservableObject {
         lastPeriodicSync = .distantPast
         let localMediaURL = await cachedMediaURL?(episode)
         guard let url = localMediaURL ?? episode.enclosureURL else {
-            errorMessage = "This episode does not contain a playable audio URL."
+            errors.media = "This episode does not contain a playable audio URL."
             return
         }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
@@ -129,6 +142,7 @@ final class PlayerController: ObservableObject {
         episode = nil
         isPlaying = false
         playbackRateError = nil
+        errors = PlayerErrorState()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
@@ -176,6 +190,7 @@ final class PlayerController: ObservableObject {
                 clientUpdatedAt: ISO8601DateFormatter().string(from: Date())
             )
             let response = try await client.savePlayback(episodeID: episode.id, update: update)
+            errors.clearConnectivity()
             if completed { onPlaybackCompleted?(episode.id) }
             if completed,
                let path = response.nextEpisodeUrl,
@@ -184,8 +199,12 @@ final class PlayerController: ObservableObject {
                 await load(next, client: client, autoplay: true)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errors.connectivity = error.localizedDescription
         }
+    }
+
+    func clearConnectivityError() {
+        errors.clearConnectivity()
     }
 
     private func configureAudioSession() {

@@ -82,12 +82,14 @@ final class AppModel: ObservableObject {
         do {
             apply(try await apiClient.home())
             errorMessage = nil
+            player.clearConnectivityError()
             return true
         } catch APIError.unauthorized {
             do {
                 try await apiClient.login()
                 apply(try await apiClient.home())
                 errorMessage = nil
+                player.clearConnectivityError()
                 return true
             } catch {
                 errorMessage = error.localizedDescription

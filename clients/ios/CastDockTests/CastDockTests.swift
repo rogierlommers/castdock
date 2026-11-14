@@ -101,6 +101,19 @@ final class CastDockTests: XCTestCase {
         XCTAssertNil(PlayTimeFormatter.timeLeft(duration: 60, position: 0, playbackRate: 1, completed: true))
     }
 
+    func testPlayerConnectivityRecoveryClearsOnlyTheNetworkError() {
+        var errors = PlayerErrorState(
+            media: "The episode cannot be played.",
+            connectivity: "The network connection was lost."
+        )
+        XCTAssertEqual(errors.visibleMessage, "The network connection was lost.")
+
+        errors.clearConnectivity()
+
+        XCTAssertEqual(errors.visibleMessage, "The episode cannot be played.")
+        XCTAssertNil(errors.connectivity)
+    }
+
     func testMediaCacheRemovesFilesForInactiveAndArchivedEpisodes() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "CastDockMediaCacheTests-\(UUID().uuidString)", directoryHint: .isDirectory)
