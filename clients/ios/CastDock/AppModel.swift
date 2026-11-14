@@ -102,7 +102,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func queue(_ episode: Episode) async { await mutate { try await $0.queue(id: episode.id) } }
+    func queue(_ episode: Episode) async { _ = await mutate { try await $0.queue(id: episode.id) } }
 
     func artworkURL(for episode: Episode) -> URL? {
         if let cachedURL = cachedArtworkURLs[episode.id],
@@ -122,10 +122,21 @@ final class AppModel: ObservableObject {
     }
 
     func archive(_ episode: Episode) async {
-        await mutate(removingCachedMediaFor: episode.id) { try await $0.archive(id: episode.id) }
+        _ = await mutate(removingCachedMediaFor: episode.id) { try await $0.archive(id: episode.id) }
     }
     func markPlayed(_ episode: Episode) async {
-        await mutate(removingCachedMediaFor: episode.id) { try await $0.markPlayed(id: episode.id) }
+        _ = await mutate(removingCachedMediaFor: episode.id) { try await $0.markPlayed(id: episode.id) }
+    }
+
+    func markNowPlayingAsPlayed() async {
+        guard let episode = player.episode else { return }
+        player.pauseForPlayedTransition()
+        let succeeded = await mutate(removingCachedMediaFor: episode.id) { try await $0.markPlayed(id: episode.id) }
+        if succeeded {
+            player.stop()
+        } else {
+            player.resumePlaybackSyncAfterFailedTransition()
+        }
     }
 
     func queueAtTop(_ episode: Episode) async {
@@ -196,14 +207,16 @@ final class AppModel: ObservableObject {
     private func mutate(
         removingCachedMediaFor episodeID: Int64? = nil,
         _ operation: (APIClient) async throws -> Void
-    ) async {
-        guard let apiClient else { return }
+    ) async -> Bool {
+        guard let apiClient else { return false }
         do {
             try await operation(apiClient)
             if let episodeID { await removeCachedMedia(for: episodeID) }
             await refresh()
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

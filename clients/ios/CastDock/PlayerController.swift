@@ -38,6 +38,7 @@ final class PlayerController: ObservableObject {
     private var confirmedPlaybackRate: Double = 1
     private var pendingPlaybackRate: Double?
     private var lastPeriodicSync = Date.distantPast
+    private var suppressPlaybackSync = false
 
     init() {
         configureAudioSession()
@@ -71,6 +72,7 @@ final class PlayerController: ObservableObject {
         playbackRate = min(max(episode.playbackSpeed, 0.5), 3)
         confirmedPlaybackRate = playbackRate
         lastPeriodicSync = .distantPast
+        suppressPlaybackSync = false
         let localMediaURL = await cachedMediaURL?(episode)
         guard let url = localMediaURL ?? episode.enclosureURL else {
             errors.media = "This episode does not contain a playable audio URL."
@@ -137,6 +139,7 @@ final class PlayerController: ObservableObject {
         speedUpdateTask?.cancel()
         speedUpdateTask = nil
         pendingPlaybackRate = nil
+        suppressPlaybackSync = false
         player.pause()
         player.replaceCurrentItem(with: nil)
         episode = nil
@@ -171,7 +174,19 @@ final class PlayerController: ObservableObject {
     }
 
     func sync() async {
+        guard !suppressPlaybackSync else { return }
         await save(completed: false)
+    }
+
+    func pauseForPlayedTransition() {
+        suppressPlaybackSync = true
+        player.pause()
+        isPlaying = false
+        updateNowPlaying()
+    }
+
+    func resumePlaybackSyncAfterFailedTransition() {
+        suppressPlaybackSync = false
     }
 
     private func finished() async {

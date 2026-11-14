@@ -5,6 +5,10 @@
   const status = document.getElementById("sync-status");
   const playTimeLeft = document.getElementById("play-time-left");
   const playbackRateSelect = document.getElementById("player-playback-rate");
+  const markPlayedForm = document.getElementById("mark-playing-played");
+  const showNotesButton = document.getElementById("show-player-notes");
+  const showNotesDialog = document.getElementById("player-notes-dialog");
+  const closeNotesButton = document.getElementById("close-player-notes");
   const rewindButton = document.getElementById("rewind-15");
   const forwardButton = document.getElementById("forward-15");
   if (!player) return;
@@ -21,6 +25,7 @@
   let confirmedPlaybackRate = configuredPlaybackRate;
   let playbackRateSaveTimer;
   let playbackRateSaveChain = Promise.resolve();
+  let suppressPlaybackSaves = false;
 
   function formatPlayTime(seconds) {
     const totalMinutes = Math.ceil(seconds / 60);
@@ -106,12 +111,14 @@
   }
 
   function save() {
+    if (suppressPlaybackSaves) return Promise.resolve({});
     const state = payload();
     saveChain = saveChain.then(() => send(state));
     return saveChain;
   }
 
   function beacon() {
+    if (suppressPlaybackSaves) return;
     const body = new Blob([JSON.stringify(payload())], { type: "application/json" });
     navigator.sendBeacon(`/api/episodes/${episodeID}/playback`, body);
   }
@@ -130,10 +137,7 @@
     updatePlayTimeLeft();
     if (shouldAutoplay && !autoplayAttempted) {
       autoplayAttempted = true;
-      player.play().catch(() => {
-        status.hidden = false;
-        status.textContent = "Playback could not start automatically. Select play to continue.";
-      });
+      player.play().catch(() => {});
     }
   }
 
@@ -150,6 +154,11 @@
     const rate = Number(playbackRateSelect.value);
     if (Number.isFinite(rate) && rate >= 0.5 && rate <= 3) player.playbackRate = rate;
   });
+  markPlayedForm?.addEventListener("submit", () => {
+    suppressPlaybackSaves = true;
+  });
+  showNotesButton?.addEventListener("click", () => showNotesDialog?.showModal());
+  closeNotesButton?.addEventListener("click", () => showNotesDialog?.close());
 
   function seekBy(seconds) {
     const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;

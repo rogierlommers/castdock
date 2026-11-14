@@ -222,6 +222,7 @@ func TestIndexSelectsEpisodeIntoInlinePlayer(t *testing.T) {
 		ID: 12, FeedID: 7, Title: "Selected episode", FeedTitle: "Selected podcast",
 		EnclosureURL: "https://example.com/selected.mp3", DurationSeconds: 3600,
 		PositionSeconds: 120, FeedPlaybackSpeed: 1.25,
+		DescriptionHTML: `<p><strong>Selected notes</strong></p><script>bad()</script>`,
 	}})
 	request := httptest.NewRequest(http.MethodGet, "http://castdock.test/?play=12", nil)
 	response := httptest.NewRecorder()
@@ -232,11 +233,15 @@ func TestIndexSelectsEpisodeIntoInlinePlayer(t *testing.T) {
 	for _, expected := range []string{
 		"Selected episode", `id="player"`, `data-episode-id="12"`, `data-stay-on-home="true"`, `data-autoplay="true"`,
 		`data-feed-id="7"`, `id="player-playback-rate"`, `value="1.25" selected`,
-		`id="rewind-15"`, `id="forward-15"`, `/static/player.js`,
+		`id="rewind-15"`, `id="forward-15"`, `id="mark-playing-played"`, `/episodes/12/played`,
+		`id="show-player-notes"`, `id="player-notes-dialog"`, `<strong>Selected notes</strong>`, `/static/player.js`,
 	} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Fatalf("inline player missing %q: %s", expected, response.Body.String())
 		}
+	}
+	if strings.Contains(response.Body.String(), "<script>bad()") {
+		t.Fatalf("inline player rendered unsafe show notes: %s", response.Body.String())
 	}
 }
 
@@ -484,6 +489,7 @@ func TestPlayerScriptSupportsPlaybackShortcutsAndTimeLeft(t *testing.T) {
 		"Play time left:", "duration - currentTime", "/ playbackRate", `"timeupdate", "durationchange"`, `"ratechange"`,
 		"stayOnHome", "?play=", "#now-playing", "shouldAutoplay", "player.play()",
 		"player-playback-rate", `/api/feeds/${feedID}/playback-options`, "playbackSpeed", "confirmedPlaybackRate",
+		"suppressPlaybackSaves", "mark-playing-played", "showModal()", "player-notes-dialog",
 	} {
 		if !strings.Contains(contents, expected) {
 			t.Fatalf("player script missing %q", expected)
@@ -491,6 +497,9 @@ func TestPlayerScriptSupportsPlaybackShortcutsAndTimeLeft(t *testing.T) {
 	}
 	if strings.Contains(contents, "Playback position saved.") {
 		t.Fatal("player script still renders the playback-saved success string")
+	}
+	if strings.Contains(contents, "Playback could not start automatically") {
+		t.Fatal("player script still renders an autoplay-blocked message")
 	}
 }
 

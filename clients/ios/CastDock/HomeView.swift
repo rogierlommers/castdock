@@ -16,7 +16,8 @@ struct HomeView: View {
                 }
                 NowPlayingSection(
                     player: model.player,
-                    artworkURL: model.player.episode.flatMap { model.artworkURL(for: $0) }
+                    artworkURL: model.player.episode.flatMap { model.artworkURL(for: $0) },
+                    markAsPlayed: { await model.markNowPlayingAsPlayed() }
                 )
                 Section("Inbox · \(model.inbox.count)") {
                     if model.inbox.isEmpty { ContentUnavailableView("Inbox zero", systemImage: "tray") }
@@ -251,6 +252,10 @@ private struct HTMLShowNotesView: UIViewRepresentable {
 private struct NowPlayingSection: View {
     @ObservedObject var player: PlayerController
     let artworkURL: URL?
+    let markAsPlayed: () async -> Void
+
+    @State private var showsNotes = false
+    @State private var isMarkingPlayed = false
 
     var body: some View {
         if let episode = player.episode {
@@ -319,6 +324,30 @@ private struct NowPlayingSection: View {
                     }
                 }
                 .pickerStyle(.menu)
+
+                Button {
+                    Task {
+                        isMarkingPlayed = true
+                        await markAsPlayed()
+                        isMarkingPlayed = false
+                    }
+                } label: {
+                    Label("Mark as played", systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isMarkingPlayed)
+
+                DisclosureGroup("Show notes", isExpanded: $showsNotes) {
+                    if let html = episode.descriptionHtml, !html.isEmpty {
+                        HTMLShowNotesView(html: html)
+                    } else {
+                        Text(episode.description.isEmpty ? "No show notes available." : episode.description)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+                .onChange(of: episode.id) { _, _ in showsNotes = false }
 
                 if let error = player.errorMessage {
                     Text(error).foregroundStyle(.red).font(.callout)

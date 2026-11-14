@@ -11,7 +11,7 @@ The first launch asks for a server URL and optional CastDock credentials. Connec
 ## MVP scope
 
 - Expandable Inbox and Up Next rows with play-time-left estimates and inline queue, play, archive, and show-note actions
-- Native AVPlayer streaming with a Home-screen Now Playing section for play/pause, live play-time-left, ±15-second seeking, and subscription playback speed
+- Native AVPlayer streaming with a Home-screen Now Playing section for play/pause, live play-time-left, ±15-second seeking, subscription playback speed, marking as played, and expandable show notes
 - Five-second playback synchronization
 - Immediate Up Next removal after a completed playback update is accepted by the server
 - The loaded Now Playing episode is hidden from Up Next before completion without changing its server-owned queue state

@@ -31,11 +31,21 @@
     <div class="playback-controls" aria-label="Playback shortcuts">
       <button class="secondary" id="rewind-15" type="button" disabled aria-label="Go back 15 seconds">↶ 15 seconds</button>
       <button class="secondary" id="forward-15" type="button" disabled aria-label="Skip forward 15 seconds">15 seconds ↷</button>
+      <form id="mark-playing-played" method="post" action="/episodes/{{.NowPlaying.ID}}/played">
+        <input type="hidden" name="return_to" value="/"><button class="secondary" type="submit">Mark as played</button>
+      </form>
+      <button class="secondary" id="show-player-notes" type="button">Show notes</button>
     </div>
     <p id="sync-status" class="sync-status" aria-live="polite" hidden></p>
     {{else}}<p class="inline-error">This episode does not provide a playable enclosure.</p>{{end}}
   </div>
 </article>
+<dialog class="player-notes-dialog" id="player-notes-dialog" aria-labelledby="player-notes-heading">
+  <div class="player-notes-header"><h2 id="player-notes-heading">Show notes</h2><button class="secondary" id="close-player-notes" type="button">Close</button></div>
+  <div class="show-notes-content">
+    {{if .NowPlaying.DescriptionHTML}}{{showNotesHTML .NowPlaying.DescriptionHTML}}{{else if .NowPlaying.Description}}<p>{{.NowPlaying.Description}}</p>{{else}}<p>No show notes available.</p>{{end}}
+  </div>
+</dialog>
 {{else}}
 <div class="empty-state"><h2>Nothing playing</h2><p>Start an episode from Up Next to see it here.</p></div>
 {{end}}
