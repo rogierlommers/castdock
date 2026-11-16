@@ -10,6 +10,9 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+# ensure data directory exists
+mkdir -p "$(dirname "$ENV_FILE")"
+
 set -a
 . "$ENV_FILE"
 set +a

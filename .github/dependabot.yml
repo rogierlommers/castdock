@@ -35,7 +35,7 @@ updates:
       day: monday
     assignees: [rogierlommers]
     open-pull-requests-limit: 3
-    labels: [dependencies, github-actions]
+    labels: [dependencies, github_actions]
     commit-message:
       prefix: deps(actions)
     groups:
